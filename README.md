@@ -32,9 +32,9 @@ output device.
 
 ## Current status
 
-Milestone 1 provides a runnable PySide6 desktop shell, versioned meeting-draft
-persistence, and automated quality checks. Recording and transcription are not
-implemented yet.
+Milestone 2 is underway. The application foundation, meeting-draft persistence,
+and Windows WASAPI microphone/loopback discovery are available. Recording and
+transcription are not implemented yet.
 
 ## Run the development application
 
@@ -58,6 +58,15 @@ From PowerShell:
 
 The same formatting, linting, type, and test checks run on Python 3.12 and 3.13
 in GitHub Actions.
+
+## Inspect Windows audio devices
+
+This read-only command lists the microphones and WASAPI loopback inputs available
+to the capture backend. It does not open a stream or record audio.
+
+```powershell
+uv run meeting-transcriber-audio-devices
+```
 
 ## Important limitation
 

@@ -14,6 +14,7 @@ authors = [
 ]
 dependencies = [
   "PySide6>=6.8,<7",
+  "PyAudioWPatch>=0.2.12.8,<0.3; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +27,7 @@ dev = [
 
 [project.scripts]
 meeting-transcriber = "meeting_transcriber.main:main"
+meeting-transcriber-audio-devices = "meeting_transcriber.capture.diagnostics:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/meeting_transcriber"]

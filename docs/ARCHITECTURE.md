@@ -38,7 +38,7 @@ flowchart LR
 | --- | --- | --- |
 | Language | Python 3.12 | Mature audio/ML ecosystem and straightforward Windows development |
 | UI | PySide6 with Qt Widgets | Native desktop controls, accessibility support, and official deployment tooling |
-| Audio capture | Windows WASAPI adapters behind an internal interface | WASAPI loopback records the selected render endpoint's system mix |
+| Audio capture | PyAudioWPatch behind a Windows WASAPI adapter | Exposes microphones and virtual loopback inputs while keeping the dependency replaceable |
 | Audio format | Timestamped PCM/WAV chunks during capture | Simple, broadly supported, and recoverable after interruption |
 | Transcription | faster-whisper/CTranslate2 | Local CPU/CUDA inference, timestamps, VAD, and multiple model sizes |
 | Speaker diarization | Optional pyannote pipeline | Established diarization tooling; isolated because model access and compute vary |
@@ -48,8 +48,8 @@ flowchart LR
 | Packaging | `pyside6-deploy` evaluated first | Official PySide6 deployment tool; create a signed Windows installer later |
 | Tests | pytest plus recorded fixtures | Unit, pipeline, and end-to-end coverage without live meetings in CI |
 
-Specific dependencies and versions will be pinned only after a capture and
-packaging spike validates them on the target Windows environment.
+PyAudioWPatch `0.2.12.8` was selected by the capture spike and is locked for
+Windows. Packaging dependencies remain provisional until the release spike.
 
 ## Module boundaries
 
@@ -222,6 +222,7 @@ does not silently overwrite them.
 ## Primary-source references
 
 - [Microsoft WASAPI loopback recording](https://learn.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording)
+- [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch)
 - [Qt for Python documentation](https://doc.qt.io/qtforpython-6/)
 - [Qt for Python deployment options](https://doc.qt.io/qtforpython-6/deployment/index.html)
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
