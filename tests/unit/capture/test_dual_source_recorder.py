@@ -4,6 +4,7 @@ import json
 import time
 from pathlib import Path
 from threading import Event
+from typing import TypedDict, cast
 
 import pytest
 
@@ -12,6 +13,15 @@ from meeting_transcriber.capture.formats import AudioFormat
 from meeting_transcriber.capture.manifest import CaptureJournalState
 from meeting_transcriber.capture.recorder import DualSourceCapture
 from meeting_transcriber.capture.streams import SourceCaptureConfig
+
+
+class _CaptureSourceDocument(TypedDict):
+    chunks: list[object]
+
+
+class _CaptureDocument(TypedDict):
+    state: str
+    sources: list[_CaptureSourceDocument]
 
 
 class FakeInputStream:
@@ -89,6 +99,17 @@ def _wait_for(predicate: object, *, timeout_seconds: float = 1.0) -> None:
     raise AssertionError("Timed out waiting for synthetic audio capture")
 
 
+def _read_capture_document(path: Path) -> _CaptureDocument:
+    for attempt in range(20):
+        try:
+            return cast(_CaptureDocument, json.loads(path.read_text(encoding="utf-8")))
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.005)
+    raise AssertionError("Capture document retry loop ended unexpectedly")
+
+
 def test_dual_capture_journals_chunks_before_normal_stop(tmp_path: Path) -> None:
     streams = {
         AudioDeviceKind.MICROPHONE: FakeInputStream(b"\x01\x00" * 2),
@@ -106,11 +127,11 @@ def test_dual_capture_journals_chunks_before_normal_stop(tmp_path: Path) -> None
     _wait_for(lambda: all(stream.read_count >= 2 for stream in streams.values()))
 
     def both_sources_are_journaled() -> bool:
-        document = json.loads((tmp_path / "capture.json").read_text(encoding="utf-8"))
+        document = _read_capture_document(tmp_path / "capture.json")
         return all(source["chunks"] for source in document["sources"])
 
     _wait_for(both_sources_are_journaled)
-    in_progress = json.loads((tmp_path / "capture.json").read_text(encoding="utf-8"))
+    in_progress = _read_capture_document(tmp_path / "capture.json")
     stopped = capture.stop()
 
     assert started.state is CaptureJournalState.RECORDING
