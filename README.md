@@ -32,7 +32,20 @@ output device.
 
 ## Current status
 
-Planning only. No runnable application has been implemented yet.
+Milestone 1 is underway. A runnable PySide6 desktop shell is available; meeting
+recording and transcription are not implemented yet.
+
+## Run the development application
+
+Install [uv](https://docs.astral.sh/uv/), then from the repository root run:
+
+```powershell
+uv sync --extra dev
+uv run meeting-transcriber
+```
+
+Python 3.12 or 3.13 is supported. The final Windows release will be distributed
+as an installer and will not require the user to install Python or run a terminal.
 
 ## Important limitation
 

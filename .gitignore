@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.python-version
+.venv/
+venv/
+
+# Test and analysis caches
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+
+# Build and packaging output
+build/
+dist/
+*.exe
+*.msi
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local application data and generated meeting artifacts
+.meeting-transcriber/
+Meetings/
+models/
+recordings/
+*.log
