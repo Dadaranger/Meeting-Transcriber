@@ -37,7 +37,7 @@ QFrame#sidebar {
     background-color: #101827;
     border-right: 1px solid #243148;
 }
-QFrame#hero, QFrame#featureCard, QFrame#diagnosticCard {
+QFrame#hero, QFrame#featureCard, QFrame#diagnosticCard, QFrame#recordingCard {
     background-color: #131e31;
     border: 1px solid #263550;
     border-radius: 14px;
@@ -102,6 +102,21 @@ QPushButton#primaryButton {
 }
 QPushButton#primaryButton:hover {
     background-color: #7cf3e0;
+}
+QPushButton#primaryButton:disabled {
+    background-color: #263550;
+    color: #718198;
+}
+QComboBox {
+    background-color: #17243a;
+    border: 1px solid #30415f;
+    border-radius: 8px;
+    padding: 9px 11px;
+}
+QCheckBox#consentCheckbox {
+    color: #e8eef8;
+    spacing: 10px;
+    padding: 8px 0;
 }
 QStatusBar {
     background-color: #101827;
