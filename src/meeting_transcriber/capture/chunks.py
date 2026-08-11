@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import wave
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,7 @@ class WavChunkWriter:
         audio_format: AudioFormat,
         *,
         chunk_duration_seconds: float = 30.0,
+        on_chunk_finalized: Callable[[AudioChunkMetadata], None] | None = None,
     ):
         if chunk_duration_seconds <= 0:
             raise ValueError("Audio chunk duration must be positive")
@@ -39,6 +41,7 @@ class WavChunkWriter:
         self.source = source
         self.audio_format = audio_format
         self.max_chunk_frames = max(1, round(audio_format.sample_rate * chunk_duration_seconds))
+        self.on_chunk_finalized = on_chunk_finalized
         self._sequence = 0
         self._active_file: wave.Wave_write | None = None
         self._active_path: Path | None = None
@@ -115,23 +118,22 @@ class WavChunkWriter:
 
         active_file.close()
         frame_count = self._active_frame_count
-        self._chunks.append(
-            AudioChunkMetadata(
-                sequence=self._sequence,
-                filename=active_path.name,
-                source=self.source,
-                start_monotonic_ns=self._active_start_ns,
-                end_monotonic_ns=(
-                    self._active_start_ns + self.audio_format.duration_ns(frame_count)
-                ),
-                frame_count=frame_count,
-                byte_count=frame_count * self.audio_format.bytes_per_frame,
-                sample_rate=self.audio_format.sample_rate,
-                channels=self.audio_format.channels,
-                sample_width_bytes=self.audio_format.sample_width_bytes,
-            )
+        metadata = AudioChunkMetadata(
+            sequence=self._sequence,
+            filename=active_path.name,
+            source=self.source,
+            start_monotonic_ns=self._active_start_ns,
+            end_monotonic_ns=(self._active_start_ns + self.audio_format.duration_ns(frame_count)),
+            frame_count=frame_count,
+            byte_count=frame_count * self.audio_format.bytes_per_frame,
+            sample_rate=self.audio_format.sample_rate,
+            channels=self.audio_format.channels,
+            sample_width_bytes=self.audio_format.sample_width_bytes,
         )
+        self._chunks.append(metadata)
         self._active_file = None
         self._active_path = None
         self._active_start_ns = 0
         self._active_frame_count = 0
+        if self.on_chunk_finalized is not None:
+            self.on_chunk_finalized(metadata)

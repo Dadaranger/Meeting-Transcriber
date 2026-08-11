@@ -111,6 +111,10 @@ timestamps in the session manifest. Writing chunks limits crash loss and makes i
 possible to resample/re-align the streams during processing. Raw streams are not
 destructively mixed during recording.
 
+The capture journal is atomically replaced whenever a chunk is finalized. It
+retains each source's start offset, format, device fingerprint, chunk boundaries,
+and interruption errors so completed chunks remain discoverable after a crash.
+
 The system channel may contain multiple remote speakers. It may also contain the
 local user's voice if the meeting software plays sidetone or echo. Timeline merge
 must therefore retain confidence and source-channel metadata instead of assuming
@@ -137,6 +141,7 @@ failure in diarization must not invalidate a successful transcription.
 Meetings/
   2026-08-10_143000_weekly-sync/
     session.json
+    capture.json
     audio/
       microphone_0001.wav
       microphone_0002.wav

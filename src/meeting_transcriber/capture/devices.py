@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 
 
 class AudioDeviceKind(StrEnum):
@@ -57,3 +58,7 @@ class AudioDeviceCatalog:
     @property
     def default_loopback(self) -> AudioDevice | None:
         return next((device for device in self.loopbacks if device.is_default), None)
+
+
+class AudioDeviceDiscovery(Protocol):
+    def discover_devices(self) -> AudioDeviceCatalog: ...

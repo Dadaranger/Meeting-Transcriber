@@ -13,6 +13,10 @@ from meeting_transcriber.capture.devices import (
     DeviceDiscoveryError,
     UnsupportedCapturePlatform,
 )
+from meeting_transcriber.capture.streams import (
+    AudioStreamError,
+    SourceCaptureConfig,
+)
 
 
 class _AudioManager(Protocol):
@@ -32,8 +36,37 @@ class _AudioManager(Protocol):
     def get_default_wasapi_loopback(self) -> Mapping[str, object]: ...
 
 
+class _PortAudioStream(Protocol):
+    def start_stream(self) -> None: ...
+
+    def read(self, frame_count: int, *, exception_on_overflow: bool) -> bytes: ...
+
+    def stop_stream(self) -> None: ...
+
+    def is_active(self) -> bool: ...
+
+    def close(self) -> None: ...
+
+
+class _StreamAudioManager(_AudioManager, Protocol):
+    def open(
+        self,
+        *,
+        format: int,
+        channels: int,
+        rate: int,
+        input: bool,
+        input_device_index: int,
+        frames_per_buffer: int,
+        start: bool,
+    ) -> _PortAudioStream: ...
+
+    def terminate(self) -> None: ...
+
+
 class _PyAudioModule(Protocol):
     paWASAPI: int
+    paInt16: int
 
     def PyAudio(self) -> _AudioManager: ...
 
@@ -46,6 +79,76 @@ def _load_pyaudio_module() -> _PyAudioModule:
     except ImportError as error:
         raise DeviceDiscoveryError("PyAudioWPatch is not installed") from error
     return cast(_PyAudioModule, pyaudiowpatch)
+
+
+class _ManagedPyAudioInputStream:
+    def __init__(self, manager: _StreamAudioManager, stream: _PortAudioStream):
+        self._manager = manager
+        self._stream = stream
+        self._closed = False
+
+    def start(self) -> None:
+        try:
+            self._stream.start_stream()
+        except OSError as error:
+            raise AudioStreamError("Could not start the Windows audio stream") from error
+
+    def read(self, frame_count: int) -> bytes:
+        if self._closed:
+            raise AudioStreamError("Cannot read from a closed Windows audio stream")
+        try:
+            return self._stream.read(frame_count, exception_on_overflow=False)
+        except OSError as error:
+            raise AudioStreamError("Could not read from the Windows audio stream") from error
+
+    def stop(self) -> None:
+        if self._closed:
+            return
+        try:
+            if self._stream.is_active():
+                self._stream.stop_stream()
+        except OSError as error:
+            raise AudioStreamError("Could not stop the Windows audio stream") from error
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        try:
+            self._stream.close()
+        finally:
+            self._manager.terminate()
+            self._closed = True
+
+
+class PyAudioWPatchStreamFactory:
+    """Open signed 16-bit PCM input streams for discovered WASAPI devices."""
+
+    def __init__(self, module: _PyAudioModule | None = None):
+        self._module = module
+
+    def open_input(self, config: SourceCaptureConfig) -> _ManagedPyAudioInputStream:
+        if config.audio_format.sample_width_bytes != 2:
+            raise AudioStreamError("PyAudioWPatch capture currently requires 16-bit PCM")
+        try:
+            module = self._module or _load_pyaudio_module()
+        except DeviceDiscoveryError as error:
+            raise AudioStreamError(str(error)) from error
+
+        manager = cast(_StreamAudioManager, module.PyAudio())
+        try:
+            stream = manager.open(
+                format=module.paInt16,
+                channels=config.audio_format.channels,
+                rate=config.audio_format.sample_rate,
+                input=True,
+                input_device_index=config.device.backend_index,
+                frames_per_buffer=config.frames_per_buffer,
+                start=False,
+            )
+        except (OSError, TypeError, ValueError) as error:
+            manager.terminate()
+            raise AudioStreamError(f"Could not open audio input: {config.device.name}") from error
+        return _ManagedPyAudioInputStream(manager, stream)
 
 
 def _required_int(info: Mapping[str, object], field: str) -> int:

@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from meeting_transcriber.app.session_service import MeetingSessionService
+from meeting_transcriber.capture.devices import AudioDeviceDiscovery, DeviceDiscoveryError
+from meeting_transcriber.capture.windows_pyaudio import PyAudioWPatchDeviceBackend
 from meeting_transcriber.infrastructure.paths import default_meetings_directory
 from meeting_transcriber.storage.session_store import SessionStore
 
@@ -217,14 +219,22 @@ class DiagnosticCard(QFrame):
         layout.setContentsMargins(18, 15, 18, 15)
         layout.setSpacing(5)
         layout.addWidget(_label(name, "muted"))
-        value_label = _label(value, "sectionTitle", wrap=True)
-        value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(value_label)
+        self.value_label = _label(value, "sectionTitle", wrap=True)
+        self.value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(self.value_label)
+
+    def set_value(self, value: str) -> None:
+        self.value_label.setText(value)
 
 
 class DiagnosticsPage(QWidget):
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(
+        self,
+        audio_backend: AudioDeviceDiscovery | None = None,
+        parent: QWidget | None = None,
+    ):
         super().__init__(parent)
+        self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
         root = QVBoxLayout(self)
         root.setContentsMargins(38, 32, 38, 32)
         root.setSpacing(15)
@@ -248,11 +258,37 @@ class DiagnosticsPage(QWidget):
                 str(default_meetings_directory()),
             )
         )
+        audio_row = QHBoxLayout()
+        self.audio_card = DiagnosticCard(
+            "Windows capture devices",
+            "Not checked - refresh to enumerate devices without recording.",
+        )
+        audio_row.addWidget(self.audio_card, 1)
+        self.refresh_audio_button = QPushButton("Refresh audio devices")
+        self.refresh_audio_button.setAccessibleName("Refresh Windows audio devices")
+        self.refresh_audio_button.clicked.connect(self._refresh_audio_devices)
+        audio_row.addWidget(self.refresh_audio_button)
+        root.addLayout(audio_row)
         root.addStretch()
+
+    def _refresh_audio_devices(self) -> None:
+        try:
+            catalog = self.audio_backend.discover_devices()
+        except DeviceDiscoveryError as error:
+            self.audio_card.set_value(f"Audio discovery failed: {error}")
+            return
+
+        microphones = ", ".join(device.name for device in catalog.microphones) or "None"
+        loopbacks = ", ".join(device.name for device in catalog.loopbacks) or "None"
+        self.audio_card.set_value(f"Microphones: {microphones}\nSystem loopbacks: {loopbacks}")
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, session_service: MeetingSessionService | None = None):
+    def __init__(
+        self,
+        session_service: MeetingSessionService | None = None,
+        audio_backend: AudioDeviceDiscovery | None = None,
+    ):
         super().__init__()
         self.session_service = session_service or MeetingSessionService(
             SessionStore(default_meetings_directory())
@@ -271,7 +307,8 @@ class MainWindow(QMainWindow):
         self.home_page = HomePage()
         self.home_page.draft_requested.connect(self._create_draft)
         self.pages.addWidget(self.home_page)
-        self.pages.addWidget(DiagnosticsPage())
+        self.diagnostics_page = DiagnosticsPage(audio_backend)
+        self.pages.addWidget(self.diagnostics_page)
 
         shell_layout.addWidget(sidebar)
         shell_layout.addWidget(self.pages, 1)

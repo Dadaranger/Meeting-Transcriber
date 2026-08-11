@@ -32,9 +32,10 @@ output device.
 
 ## Current status
 
-Milestone 2 is underway. The application foundation, meeting-draft persistence,
-and Windows WASAPI microphone/loopback discovery are available. Recording and
-transcription are not implemented yet.
+Milestone 2 provides Windows WASAPI device discovery, recoverable WAV chunking,
+and a coordinated microphone/loopback capture engine with timing journals. The
+engine is not yet connected to the consent and recording controls; transcription
+is also not implemented yet.
 
 ## Run the development application
 

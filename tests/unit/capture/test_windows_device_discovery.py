@@ -40,6 +40,7 @@ class FakeAudioManager:
 
 class FakePyAudioModule:
     paWASAPI = 13
+    paInt16 = 8
 
     def __init__(self, devices: list[dict[str, object]]):
         self.devices = devices
