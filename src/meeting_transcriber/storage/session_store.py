@@ -30,9 +30,7 @@ def _format_timestamp(value: datetime | None) -> str | None:
     return value.isoformat().replace("+00:00", "Z")
 
 
-def _parse_timestamp(
-    value: object, field: str, *, optional: bool = False
-) -> datetime | None:
+def _parse_timestamp(value: object, field: str, *, optional: bool = False) -> datetime | None:
     if value is None and optional:
         return None
     if not isinstance(value, str):
@@ -84,9 +82,7 @@ def _from_document(document: Mapping[str, object]) -> MeetingSession:
     try:
         state = SessionState(state_value)
     except ValueError as error:
-        raise SessionDataError(
-            f"Unknown meeting session state: {state_value}"
-        ) from error
+        raise SessionDataError(f"Unknown meeting session state: {state_value}") from error
 
     created_at = _parse_timestamp(document.get("created_at"), "created_at")
     updated_at = _parse_timestamp(document.get("updated_at"), "updated_at")
@@ -106,12 +102,8 @@ def _from_document(document: Mapping[str, object]) -> MeetingSession:
                 "consent_confirmed_at",
                 optional=True,
             ),
-            started_at=_parse_timestamp(
-                document.get("started_at"), "started_at", optional=True
-            ),
-            stopped_at=_parse_timestamp(
-                document.get("stopped_at"), "stopped_at", optional=True
-            ),
+            started_at=_parse_timestamp(document.get("started_at"), "started_at", optional=True),
+            stopped_at=_parse_timestamp(document.get("stopped_at"), "stopped_at", optional=True),
         )
     except (TypeError, ValueError) as error:
         raise SessionDataError("Session document contains invalid values") from error
@@ -164,9 +156,7 @@ class SessionStore:
         try:
             raw_document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
-            raise SessionDataError(
-                f"Could not read meeting session: {session_id}"
-            ) from error
+            raise SessionDataError(f"Could not read meeting session: {session_id}") from error
         if not isinstance(raw_document, dict):
             raise SessionDataError("Session document must be a JSON object")
         document = cast(dict[str, object], raw_document)

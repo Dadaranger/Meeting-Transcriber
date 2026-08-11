@@ -32,8 +32,9 @@ output device.
 
 ## Current status
 
-Milestone 1 is underway. A runnable PySide6 desktop shell is available; meeting
-recording and transcription are not implemented yet.
+Milestone 1 provides a runnable PySide6 desktop shell, versioned meeting-draft
+persistence, and automated quality checks. Recording and transcription are not
+implemented yet.
 
 ## Run the development application
 
@@ -46,6 +47,17 @@ uv run meeting-transcriber
 
 Python 3.12 or 3.13 is supported. The final Windows release will be distributed
 as an installer and will not require the user to install Python or run a terminal.
+
+## Run the checks
+
+From PowerShell:
+
+```powershell
+.\scripts\check.cmd
+```
+
+The same formatting, linting, type, and test checks run on Python 3.12 and 3.13
+in GitHub Actions.
 
 ## Important limitation
 

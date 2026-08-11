@@ -103,9 +103,7 @@ class MeetingSession:
 
     def confirm_consent(self, *, at: datetime | None = None) -> MeetingSession:
         if self.state is not SessionState.DRAFT:
-            raise InvalidSessionTransition(
-                "Consent can only be confirmed for a draft session"
-            )
+            raise InvalidSessionTransition("Consent can only be confirmed for a draft session")
         if self.consent_confirmed_at is not None:
             return self
         timestamp = _validated_timestamp(at)

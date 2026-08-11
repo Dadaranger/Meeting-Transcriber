@@ -118,9 +118,7 @@ def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> 
 
 
 class FeatureCard(QFrame):
-    def __init__(
-        self, title: str, description: str, accent: str, parent: QWidget | None = None
-    ):
+    def __init__(self, title: str, description: str, accent: str, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("featureCard")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -160,9 +158,7 @@ class HomePage(QWidget):
         hero_layout.setContentsMargins(30, 28, 30, 30)
         hero_layout.setSpacing(13)
 
-        hero_layout.addWidget(
-            _label("Turn conversations into clear meeting notes", "pageTitle")
-        )
+        hero_layout.addWidget(_label("Turn conversations into clear meeting notes", "pageTitle"))
         hero_layout.addWidget(
             _label(
                 "Record microphone and meeting audio, process it locally, review speakers, "
@@ -174,19 +170,17 @@ class HomePage(QWidget):
 
         action_row = QHBoxLayout()
         action_row.setSpacing(12)
-        start_button = QPushButton("Create a meeting draft")
-        start_button.setObjectName("primaryButton")
-        start_button.setAccessibleName("Create a meeting draft")
-        start_button.clicked.connect(self.draft_requested.emit)
-        action_row.addWidget(start_button)
+        self.start_button = QPushButton("Create a meeting draft")
+        self.start_button.setObjectName("primaryButton")
+        self.start_button.setAccessibleName("Create a meeting draft")
+        self.start_button.clicked.connect(self.draft_requested.emit)
+        action_row.addWidget(self.start_button)
         action_row.addStretch()
         hero_layout.addSpacing(6)
         hero_layout.addLayout(action_row)
         root.addWidget(hero)
 
-        root.addWidget(
-            _label("Designed around trustworthy local processing", "sectionTitle")
-        )
+        root.addWidget(_label("Designed around trustworthy local processing", "sectionTitle"))
 
         cards = QHBoxLayout()
         cards.setSpacing(14)
@@ -224,9 +218,7 @@ class DiagnosticCard(QFrame):
         layout.setSpacing(5)
         layout.addWidget(_label(name, "muted"))
         value_label = _label(value, "sectionTitle", wrap=True)
-        value_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(value_label)
 
 
