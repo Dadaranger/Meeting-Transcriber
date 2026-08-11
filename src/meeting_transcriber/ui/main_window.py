@@ -3,11 +3,12 @@ from __future__ import annotations
 import platform
 import sys
 
-from PySide6.QtCore import QStandardPaths, Qt, qVersion
+from PySide6.QtCore import Qt, Signal, qVersion
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -18,6 +19,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from meeting_transcriber.app.session_service import MeetingSessionService
+from meeting_transcriber.infrastructure.paths import default_meetings_directory
+from meeting_transcriber.storage.session_store import SessionStore
 
 APP_STYLE = """
 QWidget {
@@ -133,6 +138,8 @@ class FeatureCard(QFrame):
 
 
 class HomePage(QWidget):
+    draft_requested = Signal()
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         root = QVBoxLayout(self)
@@ -167,10 +174,10 @@ class HomePage(QWidget):
 
         action_row = QHBoxLayout()
         action_row.setSpacing(12)
-        start_button = QPushButton("Start a new meeting")
+        start_button = QPushButton("Create a meeting draft")
         start_button.setObjectName("primaryButton")
-        start_button.setAccessibleName("Start a new meeting")
-        start_button.clicked.connect(self._show_capture_preview)
+        start_button.setAccessibleName("Create a meeting draft")
+        start_button.clicked.connect(self.draft_requested.emit)
         action_row.addWidget(start_button)
         action_row.addStretch()
         hero_layout.addSpacing(6)
@@ -206,14 +213,6 @@ class HomePage(QWidget):
         )
         root.addLayout(cards)
         root.addStretch()
-
-    def _show_capture_preview(self) -> None:
-        QMessageBox.information(
-            self,
-            "Recording setup is next",
-            "The desktop foundation is running. Audio-device setup and recording controls "
-            "will arrive in the Windows capture milestones.",
-        )
 
 
 class DiagnosticCard(QFrame):
@@ -253,18 +252,19 @@ class DiagnosticsPage(QWidget):
         root.addWidget(DiagnosticCard("Qt", qVersion()))
         root.addWidget(
             DiagnosticCard(
-                "Application data",
-                QStandardPaths.writableLocation(
-                    QStandardPaths.StandardLocation.AppDataLocation
-                ),
+                "Default meeting folder",
+                str(default_meetings_directory()),
             )
         )
         root.addStretch()
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, session_service: MeetingSessionService | None = None):
         super().__init__()
+        self.session_service = session_service or MeetingSessionService(
+            SessionStore(default_meetings_directory())
+        )
         self.setWindowTitle("Meeting Transcriber")
         self.setMinimumSize(960, 640)
         self.resize(1120, 720)
@@ -276,7 +276,9 @@ class MainWindow(QMainWindow):
 
         sidebar = self._build_sidebar()
         self.pages = QStackedWidget()
-        self.pages.addWidget(HomePage())
+        self.home_page = HomePage()
+        self.home_page.draft_requested.connect(self._create_draft)
+        self.pages.addWidget(self.home_page)
         self.pages.addWidget(DiagnosticsPage())
 
         shell_layout.addWidget(sidebar)
@@ -284,8 +286,26 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(shell)
 
         status = QStatusBar()
-        status.showMessage("Ready · local processing by default")
+        status.showMessage("Ready - local processing by default")
         self.setStatusBar(status)
+
+    def _create_draft(self) -> None:
+        title, accepted = QInputDialog.getText(
+            self,
+            "Create meeting draft",
+            "Meeting title:",
+            text="Untitled meeting",
+        )
+        if not accepted:
+            return
+        session = self.session_service.create_draft(title)
+        self.statusBar().showMessage(f"Draft saved - {session.title}", 8000)
+        QMessageBox.information(
+            self,
+            "Meeting draft created",
+            "The draft is saved locally. Consent, device setup, and recording controls "
+            "will be added in the recording milestone.",
+        )
 
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
