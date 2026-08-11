@@ -4,7 +4,7 @@ import platform
 import sys
 
 from PySide6.QtCore import Qt, Signal, qVersion
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QCloseEvent, QFont
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -20,11 +20,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from meeting_transcriber.app.recording_service import (
+    MeetingRecordingService,
+    RecordingWorkflow,
+    RecordingWorkflowError,
+)
 from meeting_transcriber.app.session_service import MeetingSessionService
-from meeting_transcriber.capture.devices import AudioDeviceDiscovery, DeviceDiscoveryError
-from meeting_transcriber.capture.windows_pyaudio import PyAudioWPatchDeviceBackend
+from meeting_transcriber.capture.devices import (
+    AudioDeviceCatalog,
+    AudioDeviceDiscovery,
+    DeviceDiscoveryError,
+)
+from meeting_transcriber.capture.windows_pyaudio import (
+    PyAudioWPatchDeviceBackend,
+    PyAudioWPatchStreamFactory,
+)
+from meeting_transcriber.domain.session import SessionState
 from meeting_transcriber.infrastructure.paths import default_meetings_directory
 from meeting_transcriber.storage.session_store import SessionStore
+from meeting_transcriber.ui.recording_page import RecordingPage
 
 APP_STYLE = """
 QWidget {
@@ -76,6 +90,15 @@ QLabel#statusPill {
     font-size: 12px;
     font-weight: 650;
 }
+QLabel#recordingPill {
+    background-color: #4a1620;
+    color: #ff9caa;
+    border: 1px solid #913344;
+    border-radius: 10px;
+    padding: 6px 11px;
+    font-size: 12px;
+    font-weight: 750;
+}
 QPushButton {
     border: 1px solid #30415f;
     border-radius: 9px;
@@ -106,6 +129,17 @@ QPushButton#primaryButton:hover {
 QPushButton#primaryButton:disabled {
     background-color: #263550;
     color: #718198;
+}
+QPushButton#dangerButton {
+    background-color: #d83a52;
+    color: #ffffff;
+    border: none;
+    font-weight: 750;
+    text-align: center;
+    padding: 12px 18px;
+}
+QPushButton#dangerButton:hover {
+    background-color: #ec4c63;
 }
 QComboBox {
     background-color: #17243a;
@@ -303,10 +337,17 @@ class MainWindow(QMainWindow):
         self,
         session_service: MeetingSessionService | None = None,
         audio_backend: AudioDeviceDiscovery | None = None,
+        recording_service: RecordingWorkflow | None = None,
     ):
         super().__init__()
         self.session_service = session_service or MeetingSessionService(
             SessionStore(default_meetings_directory())
+        )
+        self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
+        self.recording_service = recording_service or MeetingRecordingService(
+            self.session_service,
+            self.audio_backend,
+            PyAudioWPatchStreamFactory(),
         )
         self.setWindowTitle("Meeting Transcriber")
         self.setMinimumSize(960, 640)
@@ -322,7 +363,12 @@ class MainWindow(QMainWindow):
         self.home_page = HomePage()
         self.home_page.draft_requested.connect(self._create_draft)
         self.pages.addWidget(self.home_page)
-        self.diagnostics_page = DiagnosticsPage(audio_backend)
+        self.recording_page = RecordingPage()
+        self.recording_page.begin_requested.connect(self._begin_recording)
+        self.recording_page.stop_requested.connect(self._stop_recording)
+        self.recording_page.back_requested.connect(self._show_home)
+        self.pages.addWidget(self.recording_page)
+        self.diagnostics_page = DiagnosticsPage(self.audio_backend)
         self.pages.addWidget(self.diagnostics_page)
 
         shell_layout.addWidget(sidebar)
@@ -331,6 +377,9 @@ class MainWindow(QMainWindow):
 
         status = QStatusBar()
         status.showMessage("Ready - local processing by default")
+        self.global_recording_indicator = _label("● RECORDING", "recordingPill")
+        self.global_recording_indicator.hide()
+        status.addPermanentWidget(self.global_recording_indicator)
         self.setStatusBar(status)
 
     def _create_draft(self) -> None:
@@ -343,13 +392,99 @@ class MainWindow(QMainWindow):
         if not accepted:
             return
         session = self.session_service.create_draft(title)
-        self.statusBar().showMessage(f"Draft saved - {session.title}", 8000)
-        QMessageBox.information(
+        try:
+            catalog = self.recording_service.discover_devices()
+        except DeviceDiscoveryError as error:
+            catalog = AudioDeviceCatalog((), ())
+            self.recording_page.load_session(session, catalog)
+            self.recording_page.show_device_error(str(error))
+        else:
+            self.recording_page.load_session(session, catalog)
+        self.pages.setCurrentWidget(self.recording_page)
+        self.statusBar().showMessage(f"Draft saved - review recording setup for {session.title}")
+
+    def _begin_recording(
+        self,
+        session_id: str,
+        microphone_id: str,
+        loopback_id: str,
+    ) -> None:
+        try:
+            session = self.recording_service.start(
+                session_id,
+                microphone_id,
+                loopback_id,
+                consent_confirmed=self.recording_page.consent_checkbox.isChecked(),
+            )
+        except RecordingWorkflowError as error:
+            self.statusBar().showMessage(f"Recording did not start - {error}")
+            QMessageBox.critical(self, "Recording could not start", str(error))
+            return
+
+        self.recording_page.show_recording(session)
+        self.global_recording_indicator.show()
+        self._set_navigation_enabled(False)
+        self.statusBar().showMessage(f"Recording - {session.title}")
+
+    def _stop_recording(self) -> None:
+        try:
+            result = self.recording_service.stop()
+        except RecordingWorkflowError as error:
+            self.statusBar().showMessage(f"Recording interrupted - {error}")
+            QMessageBox.critical(self, "Recording was interrupted", str(error))
+        else:
+            if result.session.state is SessionState.INTERRUPTED:
+                self.statusBar().showMessage(
+                    f"Recording interrupted - recoverable audio retained for {result.session.title}"
+                )
+                QMessageBox.warning(
+                    self,
+                    "Recording interrupted",
+                    "The capture reported an interruption. Recoverable audio and diagnostics "
+                    "were retained locally.",
+                )
+            else:
+                self.statusBar().showMessage(
+                    f"Recording saved locally - {result.session.title}",
+                    10_000,
+                )
+                QMessageBox.information(
+                    self,
+                    "Recording saved",
+                    "Microphone and system-audio chunks were finalized locally.",
+                )
+        finally:
+            self.recording_page.recording_finished()
+            self.global_recording_indicator.hide()
+            self._set_navigation_enabled(True)
+            self.pages.setCurrentWidget(self.home_page)
+
+    def _show_home(self) -> None:
+        if not self.recording_service.is_recording:
+            self.pages.setCurrentWidget(self.home_page)
+            self.home_button.setChecked(True)
+
+    def _set_navigation_enabled(self, enabled: bool) -> None:
+        self.home_button.setEnabled(enabled)
+        self.diagnostics_button.setEnabled(enabled)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if not self.recording_service.is_recording:
+            super().closeEvent(event)
+            return
+
+        answer = QMessageBox.question(
             self,
-            "Meeting draft created",
-            "The draft is saved locally. Consent, device setup, and recording controls "
-            "will be added in the recording milestone.",
+            "Stop recording and close?",
+            "The meeting is still recording. Stop and finalize both audio sources before closing?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
+        if answer is QMessageBox.StandardButton.No:
+            event.ignore()
+            return
+        self._stop_recording()
+        event.accept()
 
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
@@ -373,15 +508,17 @@ class MainWindow(QMainWindow):
         layout.addLayout(brand_row)
         layout.addSpacing(22)
 
-        home_button = QPushButton("Home")
-        diagnostics_button = QPushButton("Diagnostics")
-        for button in (home_button, diagnostics_button):
+        self.home_button = QPushButton("Home")
+        self.diagnostics_button = QPushButton("Diagnostics")
+        for button in (self.home_button, self.diagnostics_button):
             button.setCheckable(True)
             button.setAutoExclusive(True)
             layout.addWidget(button)
-        home_button.setChecked(True)
-        home_button.clicked.connect(lambda: self.pages.setCurrentIndex(0))
-        diagnostics_button.clicked.connect(lambda: self.pages.setCurrentIndex(1))
+        self.home_button.setChecked(True)
+        self.home_button.clicked.connect(lambda: self.pages.setCurrentWidget(self.home_page))
+        self.diagnostics_button.clicked.connect(
+            lambda: self.pages.setCurrentWidget(self.diagnostics_page)
+        )
 
         layout.addStretch()
         privacy = _label(

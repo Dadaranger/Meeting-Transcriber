@@ -6,6 +6,7 @@ from meeting_transcriber.domain.session import (
     REQUIRED_CONSENT_SOURCES,
     ConsentCaptureSource,
     MeetingSession,
+    SessionState,
 )
 from meeting_transcriber.storage.session_store import SessionStore
 
@@ -33,6 +34,12 @@ class MeetingSessionService:
         confirmed = session.confirm_consent(capture_sources)
         self.store.save(confirmed)
         return confirmed
+
+    def transition_state(self, session_id: str, target: SessionState) -> MeetingSession:
+        session = self.store.load(session_id)
+        transitioned = session.transition(target)
+        self.store.save(transitioned)
+        return transitioned
 
     def recent_sessions(self) -> list[MeetingSession]:
         return self.store.list_sessions()

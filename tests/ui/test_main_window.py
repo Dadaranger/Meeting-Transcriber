@@ -5,12 +5,15 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 from pytestqt.qtbot import QtBot
 
+from meeting_transcriber.app.recording_service import RecordingStopResult
 from meeting_transcriber.app.session_service import MeetingSessionService
 from meeting_transcriber.capture.devices import (
     AudioDevice,
     AudioDeviceCatalog,
     AudioDeviceKind,
 )
+from meeting_transcriber.capture.manifest import CaptureJournalState, CaptureManifest
+from meeting_transcriber.domain.session import MeetingSession, SessionState
 from meeting_transcriber.storage.session_store import SessionStore
 from meeting_transcriber.ui.main_window import MainWindow
 
@@ -38,6 +41,52 @@ class FakeAudioDiscovery:
         return AudioDeviceCatalog((microphone,), (loopback,))
 
 
+class FakeRecordingWorkflow:
+    def __init__(self, sessions: MeetingSessionService):
+        self.sessions = sessions
+        self.discovery = FakeAudioDiscovery()
+        self.start_calls: list[tuple[str, str, str, bool]] = []
+        self._recording = False
+
+    @property
+    def is_recording(self) -> bool:
+        return self._recording
+
+    def discover_devices(self) -> AudioDeviceCatalog:
+        return self.discovery.discover_devices()
+
+    def start(
+        self,
+        session_id: str,
+        microphone_id: str,
+        loopback_id: str,
+        *,
+        consent_confirmed: bool,
+    ) -> MeetingSession:
+        self.start_calls.append((session_id, microphone_id, loopback_id, consent_confirmed))
+        assert consent_confirmed
+        self.sessions.confirm_recording_consent(session_id)
+        self._recording = True
+        return self.sessions.transition_state(session_id, SessionState.RECORDING)
+
+    def stop(self) -> RecordingStopResult:
+        session = self.sessions.recent_sessions()[0]
+        recorded = self.sessions.transition_state(session.session_id, SessionState.RECORDED)
+        self._recording = False
+        return RecordingStopResult(
+            recorded,
+            CaptureManifest(
+                schema_version=1,
+                session_id=recorded.session_id,
+                state=CaptureJournalState.STOPPED,
+                started_monotonic_ns=1,
+                updated_monotonic_ns=2,
+                stopped_monotonic_ns=2,
+                sources=(),
+            ),
+        )
+
+
 def test_main_window_exposes_home_and_diagnostics_pages(qtbot: QtBot, tmp_path: Path) -> None:
     service = MeetingSessionService(SessionStore(tmp_path))
     window = MainWindow(service)
@@ -47,7 +96,7 @@ def test_main_window_exposes_home_and_diagnostics_pages(qtbot: QtBot, tmp_path: 
 
     assert window.isVisible()
     assert window.windowTitle() == "Meeting Transcriber"
-    assert window.pages.count() == 2
+    assert window.pages.count() == 3
     assert window.pages.currentWidget() is window.home_page
 
 
@@ -57,7 +106,7 @@ def test_create_draft_button_persists_a_named_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = MeetingSessionService(SessionStore(tmp_path))
-    window = MainWindow(service)
+    window = MainWindow(service, FakeAudioDiscovery())
     qtbot.addWidget(window)
 
     def fake_get_text(*args: object, **kwargs: object) -> tuple[str, bool]:
@@ -77,7 +126,9 @@ def test_create_draft_button_persists_a_named_session(
     sessions = service.recent_sessions()
     assert len(sessions) == 1
     assert sessions[0].title == "Architecture review"
-    assert "Draft saved - Architecture review" in window.statusBar().currentMessage()
+    assert window.pages.currentWidget() is window.recording_page
+    assert not window.recording_page.begin_button.isEnabled()
+    assert "review recording setup" in window.statusBar().currentMessage()
 
 
 def test_diagnostics_refreshes_audio_devices_explicitly(qtbot: QtBot, tmp_path: Path) -> None:
@@ -93,3 +144,61 @@ def test_diagnostics_refreshes_audio_devices_explicitly(qtbot: QtBot, tmp_path: 
     value = window.diagnostics_page.audio_card.value_label.text()
     assert "Test microphone" in value
     assert "Test speakers [Loopback]" in value
+
+
+def test_consent_gated_ui_starts_and_stops_visible_recording(
+    qtbot: QtBot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = MeetingSessionService(SessionStore(tmp_path))
+    workflow = FakeRecordingWorkflow(service)
+    window = MainWindow(service, FakeAudioDiscovery(), workflow)
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(
+        QInputDialog,
+        "getText",
+        lambda *args, **kwargs: ("Client interview", True),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Ok,
+    )
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.home_page.start_button,
+        Qt.MouseButton.LeftButton,
+    )
+    assert workflow.start_calls == []
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.recording_page.consent_checkbox,
+        Qt.MouseButton.LeftButton,
+    )
+    assert workflow.start_calls == []
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.recording_page.begin_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    recording = service.recent_sessions()[0]
+    assert workflow.start_calls == [(recording.session_id, "microphone", "loopback", True)]
+    assert recording.state is SessionState.RECORDING
+    assert recording.has_current_recording_consent
+    assert not window.recording_page.recording_card.isHidden()
+    assert not window.global_recording_indicator.isHidden()
+    assert not window.home_button.isEnabled()
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.recording_page.stop_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert service.recent_sessions()[0].state is SessionState.RECORDED
+    assert window.recording_page.recording_card.isHidden()
+    assert window.global_recording_indicator.isHidden()
+    assert window.home_button.isEnabled()
+    assert window.pages.currentWidget() is window.home_page

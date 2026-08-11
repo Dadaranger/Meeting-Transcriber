@@ -4,9 +4,9 @@ Meeting Transcriber is a planned desktop application that records a meeting's
 microphone and computer audio, transcribes the conversation locally, separates
 speakers where possible, and exports a structured, human-readable meeting file.
 
-The repository is currently in its planning phase. The first supported platform
-will be Windows, where WASAPI loopback capture can record the audio played by
-meeting applications without requiring a bot to join the call.
+The application is under active development. The first supported platform is
+Windows, where WASAPI loopback capture can record the audio played by meeting
+applications without requiring a bot to join the call.
 
 ## Product direction
 
@@ -32,10 +32,14 @@ output device.
 
 ## Current status
 
-Milestone 2 provides Windows WASAPI device discovery, recoverable WAV chunking,
-and a coordinated microphone/loopback capture engine with timing journals. The
-engine is not yet connected to the consent and recording controls; transcription
-is also not implemented yet.
+Milestone 3 now connects Windows device discovery and the recoverable dual-source
+capture engine to a consent-gated desktop workflow. A meeting draft opens a
+device-review screen, recording cannot begin until the acknowledgement is checked,
+and the live screen keeps elapsed time and stop controls visible. Consent version,
+capture scope, session state, WAV chunks, and capture timing are persisted locally.
+
+Audio meters, pause/resume, interrupted-session recovery UI, transcription, and
+structured export remain upcoming milestones.
 
 ## Run the development application
 

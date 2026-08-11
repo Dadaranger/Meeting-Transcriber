@@ -6,7 +6,7 @@ from meeting_transcriber.capture.devices import (
     AudioDeviceCatalog,
     AudioDeviceKind,
 )
-from meeting_transcriber.domain.session import CONSENT_STATEMENT, MeetingSession
+from meeting_transcriber.domain.session import CONSENT_STATEMENT, MeetingSession, SessionState
 from meeting_transcriber.ui.recording_page import RecordingPage
 
 
@@ -99,3 +99,26 @@ def test_device_error_clears_previous_choices(qtbot: QtBot) -> None:
     assert page.loopback_combo.count() == 0
     assert not page.begin_button.isEnabled()
     assert "WASAPI unavailable" in page.device_status_label.text()
+
+
+def test_recording_state_has_persistent_timer_sources_and_stop_control(qtbot: QtBot) -> None:
+    page = RecordingPage()
+    qtbot.addWidget(page)
+    draft = MeetingSession.new("Weekly sync")
+    recording = draft.confirm_consent().transition(SessionState.RECORDING)
+    page.load_session(draft, _catalog())
+
+    page.show_recording(recording)
+
+    assert page.setup_card.isHidden()
+    assert not page.recording_card.isHidden()
+    assert page.recording_pill.text() == "● RECORDING"
+    assert page.elapsed_label.text() == "00:00:00"
+    assert "Headset microphone" in page.live_sources_label.text()
+    assert "Speakers [Loopback]" in page.live_sources_label.text()
+
+    with qtbot.waitSignal(page.stop_requested):
+        qtbot.mouseClick(page.stop_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    page.recording_finished()
+    assert page.recording_card.isHidden()

@@ -99,6 +99,22 @@ stateDiagram-v2
 State changes are persisted atomically in `session.json`. UI state is derived
 from this persisted model; it is not the source of truth.
 
+Consent is stored as versioned session metadata containing the confirmation time,
+the statement version, and the approved capture sources. A legacy timestamp from a
+schema-v1 session remains readable but is not accepted as current consent. The
+recording application service enforces this startup order:
+
+1. Require the explicit acknowledgement from the current setup screen.
+2. Rediscover and validate the selected microphone and loopback endpoints.
+3. Persist current, source-specific consent.
+4. Persist the session's transition to `recording`.
+5. Construct and start both capture streams.
+6. Mark the session `interrupted` if startup or shutdown fails.
+
+The UI only displays its recording state after the capture coordinator reports a
+successful start. Device enumeration is read-only and may occur before consent;
+opening a stream may not.
+
 ## Audio capture design
 
 The capture coordinator opens two independent streams:
@@ -207,6 +223,9 @@ does not silently overwrite them.
 ## Security and privacy
 
 - Local processing is the default and must work without an account.
+- Every meeting requires a fresh consent acknowledgement before a stream opens.
+- A persistent recording indicator and stop control remain visible while capture
+  is active; navigation is disabled until capture is finalized.
 - The application never uploads audio implicitly.
 - Any future cloud/LLM provider is opt-in per setting and clearly marks which data
   leaves the computer.

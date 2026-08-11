@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+import time
+
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -29,6 +31,7 @@ class RecordingPage(QWidget):
 
     begin_requested = Signal(str, str, str)
     back_requested = Signal()
+    stop_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -48,9 +51,9 @@ class RecordingPage(QWidget):
             )
         )
 
-        card = QFrame()
-        card.setObjectName("recordingCard")
-        card_layout = QVBoxLayout(card)
+        self.setup_card = QFrame()
+        self.setup_card.setObjectName("recordingCard")
+        card_layout = QVBoxLayout(self.setup_card)
         card_layout.setContentsMargins(24, 22, 24, 24)
         card_layout.setSpacing(12)
 
@@ -102,10 +105,58 @@ class RecordingPage(QWidget):
         actions.addWidget(self.begin_button)
         card_layout.addLayout(actions)
 
-        root.addWidget(card)
+        root.addWidget(self.setup_card)
+
+        self.recording_card = QFrame()
+        self.recording_card.setObjectName("recordingCard")
+        recording_layout = QVBoxLayout(self.recording_card)
+        recording_layout.setContentsMargins(24, 22, 24, 24)
+        recording_layout.setSpacing(14)
+
+        live_header = QHBoxLayout()
+        self.recording_pill = _label("● RECORDING", "recordingPill")
+        live_header.addWidget(self.recording_pill)
+        live_header.addStretch()
+        self.elapsed_label = _label("00:00:00", "pageTitle")
+        self.elapsed_label.setAccessibleName("Recording elapsed time")
+        live_header.addWidget(self.elapsed_label)
+        recording_layout.addLayout(live_header)
+
+        self.live_meeting_title = _label("Meeting", "sectionTitle", wrap=True)
+        recording_layout.addWidget(self.live_meeting_title)
+        recording_layout.addWidget(
+            _label(
+                "Recording is active. Keep participants informed; use Stop recording to "
+                "finalize both recoverable audio sources.",
+                "muted",
+                wrap=True,
+            )
+        )
+        self.live_sources_label = _label("", "muted", wrap=True)
+        recording_layout.addWidget(self.live_sources_label)
+
+        live_actions = QHBoxLayout()
+        live_actions.addStretch()
+        self.stop_button = QPushButton("Stop recording")
+        self.stop_button.setObjectName("dangerButton")
+        self.stop_button.setAccessibleName("Stop and finalize recording")
+        self.stop_button.clicked.connect(self.stop_requested.emit)
+        live_actions.addWidget(self.stop_button)
+        recording_layout.addLayout(live_actions)
+        self.recording_card.hide()
+        root.addWidget(self.recording_card)
         root.addStretch()
 
+        self._recording_started_monotonic: float | None = None
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(1_000)
+        self._elapsed_timer.timeout.connect(self._update_elapsed)
+
     def load_session(self, session: MeetingSession, catalog: AudioDeviceCatalog) -> None:
+        self._elapsed_timer.stop()
+        self._recording_started_monotonic = None
+        self.recording_card.hide()
+        self.setup_card.show()
         self._session_id = session.session_id
         self.meeting_title_label.setText(session.title)
         self.consent_checkbox.setChecked(False)
@@ -124,6 +175,23 @@ class RecordingPage(QWidget):
                 missing.append("system-audio loopback")
             self.device_status_label.setText(f"Missing capture source: {', '.join(missing)}.")
         self._update_begin_enabled()
+
+    def show_recording(self, session: MeetingSession) -> None:
+        self.live_meeting_title.setText(session.title)
+        self.live_sources_label.setText(
+            f"Microphone: {self.microphone_combo.currentText()}\n"
+            f"System audio: {self.loopback_combo.currentText()}"
+        )
+        self.setup_card.hide()
+        self.recording_card.show()
+        self._recording_started_monotonic = time.monotonic()
+        self._update_elapsed()
+        self._elapsed_timer.start()
+
+    def recording_finished(self) -> None:
+        self._elapsed_timer.stop()
+        self._recording_started_monotonic = None
+        self.recording_card.hide()
 
     def show_device_error(self, message: str) -> None:
         self.microphone_combo.clear()
@@ -170,3 +238,12 @@ class RecordingPage(QWidget):
         ):
             return
         self.begin_requested.emit(self._session_id, microphone_id, loopback_id)
+
+    def _update_elapsed(self) -> None:
+        if self._recording_started_monotonic is None:
+            elapsed_seconds = 0
+        else:
+            elapsed_seconds = max(0, int(time.monotonic() - self._recording_started_monotonic))
+        hours, remainder = divmod(elapsed_seconds, 3_600)
+        minutes, seconds = divmod(remainder, 60)
+        self.elapsed_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
