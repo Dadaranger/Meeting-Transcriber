@@ -3,7 +3,7 @@ from __future__ import annotations
 import platform
 import sys
 
-from PySide6.QtCore import Qt, Signal, qVersion
+from PySide6.QtCore import Qt, QTimer, Signal, qVersion
 from PySide6.QtGui import QCloseEvent, QFont
 from PySide6.QtWidgets import (
     QFrame,
@@ -151,6 +151,16 @@ QCheckBox#consentCheckbox {
     color: #e8eef8;
     spacing: 10px;
     padding: 8px 0;
+}
+QProgressBar {
+    background-color: #0f192a;
+    border: 1px solid #30415f;
+    border-radius: 6px;
+    min-height: 13px;
+}
+QProgressBar::chunk {
+    background-color: #5eead4;
+    border-radius: 5px;
 }
 QStatusBar {
     background-color: #101827;
@@ -381,6 +391,9 @@ class MainWindow(QMainWindow):
         self.global_recording_indicator.hide()
         status.addPermanentWidget(self.global_recording_indicator)
         self.setStatusBar(status)
+        self.level_timer = QTimer(self)
+        self.level_timer.setInterval(100)
+        self.level_timer.timeout.connect(self._refresh_levels)
 
     def _create_draft(self) -> None:
         title, accepted = QInputDialog.getText(
@@ -422,6 +435,8 @@ class MainWindow(QMainWindow):
             return
 
         self.recording_page.show_recording(session)
+        self._refresh_levels()
+        self.level_timer.start()
         self.global_recording_indicator.show()
         self._set_navigation_enabled(False)
         self.statusBar().showMessage(f"Recording - {session.title}")
@@ -454,6 +469,7 @@ class MainWindow(QMainWindow):
                     "Microphone and system-audio chunks were finalized locally.",
                 )
         finally:
+            self.level_timer.stop()
             self.recording_page.recording_finished()
             self.global_recording_indicator.hide()
             self._set_navigation_enabled(True)
@@ -467,6 +483,10 @@ class MainWindow(QMainWindow):
     def _set_navigation_enabled(self, enabled: bool) -> None:
         self.home_button.setEnabled(enabled)
         self.diagnostics_button.setEnabled(enabled)
+
+    def _refresh_levels(self) -> None:
+        levels = self.recording_service.latest_levels()
+        self.recording_page.update_levels(levels.microphone, levels.system_audio)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if not self.recording_service.is_recording:

@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 from pytestqt.qtbot import QtBot
 
-from meeting_transcriber.app.recording_service import RecordingStopResult
+from meeting_transcriber.app.recording_service import RecordingLevels, RecordingStopResult
 from meeting_transcriber.app.session_service import MeetingSessionService
 from meeting_transcriber.capture.devices import (
     AudioDevice,
@@ -85,6 +85,9 @@ class FakeRecordingWorkflow:
                 sources=(),
             ),
         )
+
+    def latest_levels(self) -> RecordingLevels:
+        return RecordingLevels(microphone=0.2, system_audio=0.8)
 
 
 def test_main_window_exposes_home_and_diagnostics_pages(qtbot: QtBot, tmp_path: Path) -> None:
@@ -191,6 +194,8 @@ def test_consent_gated_ui_starts_and_stops_visible_recording(
     assert not window.recording_page.recording_card.isHidden()
     assert not window.global_recording_indicator.isHidden()
     assert not window.home_button.isEnabled()
+    assert window.recording_page.microphone_level.value() == 20
+    assert window.recording_page.system_audio_level.value() == 80
 
     qtbot.mouseClick(  # type: ignore[no-untyped-call]
         window.recording_page.stop_button,

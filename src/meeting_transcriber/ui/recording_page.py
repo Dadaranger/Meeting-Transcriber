@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -135,6 +136,22 @@ class RecordingPage(QWidget):
         self.live_sources_label = _label("", "muted", wrap=True)
         recording_layout.addWidget(self.live_sources_label)
 
+        recording_layout.addWidget(_label("Microphone level", "muted"))
+        self.microphone_level = QProgressBar()
+        self.microphone_level.setRange(0, 100)
+        self.microphone_level.setValue(0)
+        self.microphone_level.setTextVisible(False)
+        self.microphone_level.setAccessibleName("Live microphone input level")
+        recording_layout.addWidget(self.microphone_level)
+
+        recording_layout.addWidget(_label("System audio level", "muted"))
+        self.system_audio_level = QProgressBar()
+        self.system_audio_level.setRange(0, 100)
+        self.system_audio_level.setValue(0)
+        self.system_audio_level.setTextVisible(False)
+        self.system_audio_level.setAccessibleName("Live system audio input level")
+        recording_layout.addWidget(self.system_audio_level)
+
         live_actions = QHBoxLayout()
         live_actions.addStretch()
         self.stop_button = QPushButton("Stop recording")
@@ -184,6 +201,7 @@ class RecordingPage(QWidget):
         )
         self.setup_card.hide()
         self.recording_card.show()
+        self.update_levels(0.0, 0.0)
         self._recording_started_monotonic = time.monotonic()
         self._update_elapsed()
         self._elapsed_timer.start()
@@ -192,6 +210,10 @@ class RecordingPage(QWidget):
         self._elapsed_timer.stop()
         self._recording_started_monotonic = None
         self.recording_card.hide()
+
+    def update_levels(self, microphone: float, system_audio: float) -> None:
+        self.microphone_level.setValue(round(max(0.0, min(1.0, microphone)) * 100))
+        self.system_audio_level.setValue(round(max(0.0, min(1.0, system_audio)) * 100))
 
     def show_device_error(self, message: str) -> None:
         self.microphone_combo.clear()

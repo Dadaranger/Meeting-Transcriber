@@ -10,6 +10,7 @@ from meeting_transcriber.capture.devices import (
     UnsupportedCapturePlatform,
 )
 from meeting_transcriber.capture.formats import AudioFormat
+from meeting_transcriber.capture.levels import AudioLevelSnapshot, pcm16_peak
 from meeting_transcriber.capture.manifest import (
     CaptureJournalState,
     CaptureManifest,
@@ -25,6 +26,7 @@ __all__ = [
     "AudioDeviceDiscovery",
     "AudioDeviceKind",
     "AudioFormat",
+    "AudioLevelSnapshot",
     "AudioStreamError",
     "CaptureCoordinatorState",
     "CaptureJournalState",
@@ -35,4 +37,5 @@ __all__ = [
     "SourceCaptureConfig",
     "UnsupportedCapturePlatform",
     "WavChunkWriter",
+    "pcm16_peak",
 ]

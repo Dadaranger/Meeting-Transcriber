@@ -9,6 +9,7 @@ from threading import Event, Thread
 
 from meeting_transcriber.capture.chunks import WavChunkWriter
 from meeting_transcriber.capture.devices import AudioDeviceKind
+from meeting_transcriber.capture.levels import AudioLevelSnapshot, pcm16_peak
 from meeting_transcriber.capture.manifest import CaptureManifest, CaptureManifestJournal
 from meeting_transcriber.capture.streams import (
     AudioInputStream,
@@ -32,6 +33,7 @@ class _SourceWorker(Thread):
         stop_event: Event,
         started_ns: int,
         clock: Callable[[], int],
+        on_audio_level: Callable[[AudioLevelSnapshot], None] | None,
     ):
         super().__init__(name=f"capture-{config.device.kind.value}", daemon=True)
         self.config = config
@@ -40,6 +42,7 @@ class _SourceWorker(Thread):
         self.stop_event = stop_event
         self.started_ns = started_ns
         self.clock = clock
+        self.on_audio_level = on_audio_level
         self.frames_read = 0
         self.stopped_ns: int | None = None
         self.errors: list[str] = []
@@ -53,6 +56,15 @@ class _SourceWorker(Thread):
                 frame_start_ns = self.started_ns + self.config.audio_format.duration_ns(
                     self.frames_read
                 )
+                if self.on_audio_level is not None:
+                    with suppress(Exception):
+                        self.on_audio_level(
+                            AudioLevelSnapshot(
+                                source=self.config.device.kind,
+                                peak=pcm16_peak(pcm),
+                                observed_monotonic_ns=self.clock(),
+                            )
+                        )
                 self.writer.write_frames(pcm, frame_start_ns=frame_start_ns)
                 self.frames_read += len(pcm) // self.config.audio_format.bytes_per_frame
         except Exception as error:
@@ -90,6 +102,7 @@ class DualSourceCapture:
         *,
         chunk_duration_seconds: float = 30.0,
         clock: Callable[[], int] = time.monotonic_ns,
+        on_audio_level: Callable[[AudioLevelSnapshot], None] | None = None,
     ):
         kinds = {config.device.kind for config in configs}
         expected_kinds = {AudioDeviceKind.MICROPHONE, AudioDeviceKind.SYSTEM_LOOPBACK}
@@ -101,6 +114,7 @@ class DualSourceCapture:
         self.stream_factory = stream_factory
         self.chunk_duration_seconds = chunk_duration_seconds
         self.clock = clock
+        self.on_audio_level = on_audio_level
         self.state = CaptureCoordinatorState.IDLE
         self._stop_event = Event()
         self._workers: dict[AudioDeviceKind, _SourceWorker] = {}
@@ -146,6 +160,7 @@ class DualSourceCapture:
                 self._stop_event,
                 source_started_ns[config.device.kind],
                 self.clock,
+                self.on_audio_level,
             )
             self._workers[config.device.kind] = worker
             worker.start()

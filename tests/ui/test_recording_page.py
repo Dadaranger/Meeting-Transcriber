@@ -117,6 +117,10 @@ def test_recording_state_has_persistent_timer_sources_and_stop_control(qtbot: Qt
     assert "Headset microphone" in page.live_sources_label.text()
     assert "Speakers [Loopback]" in page.live_sources_label.text()
 
+    page.update_levels(0.42, 0.91)
+    assert page.microphone_level.value() == 42
+    assert page.system_audio_level.value() == 91
+
     with qtbot.waitSignal(page.stop_requested):
         qtbot.mouseClick(page.stop_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 

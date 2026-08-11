@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Protocol
 
 from meeting_transcriber.app.session_service import MeetingSessionService
@@ -13,6 +15,7 @@ from meeting_transcriber.capture.devices import (
     DeviceDiscoveryError,
 )
 from meeting_transcriber.capture.formats import AudioFormat
+from meeting_transcriber.capture.levels import AudioLevelSnapshot
 from meeting_transcriber.capture.manifest import (
     CaptureJournalState,
     CaptureManifest,
@@ -56,7 +59,14 @@ class CoordinatedCaptureFactory(Protocol):
         session_directory: Path,
         configs: tuple[SourceCaptureConfig, SourceCaptureConfig],
         stream_factory: AudioStreamFactory,
+        on_audio_level: Callable[[AudioLevelSnapshot], None],
     ) -> CoordinatedCapture: ...
+
+
+@dataclass(frozen=True, slots=True)
+class RecordingLevels:
+    microphone: float = 0.0
+    system_audio: float = 0.0
 
 
 class RecordingWorkflow(Protocol):
@@ -76,6 +86,8 @@ class RecordingWorkflow(Protocol):
 
     def stop(self) -> RecordingStopResult: ...
 
+    def latest_levels(self) -> RecordingLevels: ...
+
 
 def build_dual_source_capture(
     *,
@@ -83,12 +95,14 @@ def build_dual_source_capture(
     session_directory: Path,
     configs: tuple[SourceCaptureConfig, SourceCaptureConfig],
     stream_factory: AudioStreamFactory,
+    on_audio_level: Callable[[AudioLevelSnapshot], None],
 ) -> DualSourceCapture:
     return DualSourceCapture(
         session_id,
         session_directory,
         configs,
         stream_factory,
+        on_audio_level=on_audio_level,
     )
 
 
@@ -119,6 +133,8 @@ class MeetingRecordingService:
         self.stream_factory = stream_factory
         self.capture_factory = capture_factory
         self._active: _ActiveRecording | None = None
+        self._level_lock = Lock()
+        self._latest_levels = RecordingLevels()
 
     @property
     def is_recording(self) -> bool:
@@ -126,6 +142,10 @@ class MeetingRecordingService:
 
     def discover_devices(self) -> AudioDeviceCatalog:
         return self.device_discovery.discover_devices()
+
+    def latest_levels(self) -> RecordingLevels:
+        with self._level_lock:
+            return self._latest_levels
 
     def start(
         self,
@@ -172,11 +192,14 @@ class MeetingRecordingService:
                 "Meeting consent or recording state could not be persisted"
             ) from error
         try:
+            with self._level_lock:
+                self._latest_levels = RecordingLevels()
             capture = self.capture_factory(
                 session_id=session_id,
                 session_directory=self.session_service.store.session_directory(session_id),
                 configs=configs,
                 stream_factory=self.stream_factory,
+                on_audio_level=self._record_audio_level,
             )
             capture.start()
         except Exception as error:
@@ -233,3 +256,16 @@ class MeetingRecordingService:
             channels=min(device.max_input_channels, maximum_channels),
         )
         return SourceCaptureConfig(device, audio_format)
+
+    def _record_audio_level(self, snapshot: AudioLevelSnapshot) -> None:
+        with self._level_lock:
+            if snapshot.source is AudioDeviceKind.MICROPHONE:
+                self._latest_levels = RecordingLevels(
+                    microphone=snapshot.peak,
+                    system_audio=self._latest_levels.system_audio,
+                )
+            else:
+                self._latest_levels = RecordingLevels(
+                    microphone=self._latest_levels.microphone,
+                    system_audio=snapshot.peak,
+                )

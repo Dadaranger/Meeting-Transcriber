@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from meeting_transcriber.capture.devices import (
     AudioDeviceCatalog,
     AudioDeviceKind,
 )
+from meeting_transcriber.capture.levels import AudioLevelSnapshot
 from meeting_transcriber.capture.manifest import CaptureJournalState, CaptureManifest
 from meeting_transcriber.capture.streams import (
     AudioInputStream,
@@ -50,11 +52,13 @@ class FakeCapture:
         fail_start: bool = False,
         fail_stop: bool = False,
         stop_state: CaptureJournalState = CaptureJournalState.STOPPED,
+        on_audio_level: Callable[[AudioLevelSnapshot], None] | None = None,
     ):
         self.session_id = session_id
         self.fail_start = fail_start
         self.fail_stop = fail_stop
         self.stop_state = stop_state
+        self.on_audio_level = on_audio_level
         self.started = False
         self.stopped = False
 
@@ -62,6 +66,9 @@ class FakeCapture:
         if self.fail_start:
             raise OSError("Synthetic device failure")
         self.started = True
+        if self.on_audio_level is not None:
+            self.on_audio_level(AudioLevelSnapshot(AudioDeviceKind.MICROPHONE, 0.25, 1))
+            self.on_audio_level(AudioLevelSnapshot(AudioDeviceKind.SYSTEM_LOOPBACK, 0.75, 1))
         return _manifest(self.session_id, CaptureJournalState.RECORDING)
 
     def stop(self, *, timeout_seconds: float = 5.0) -> CaptureManifest:
@@ -95,6 +102,7 @@ class FakeCaptureFactory:
         session_directory: Path,
         configs: tuple[SourceCaptureConfig, SourceCaptureConfig],
         stream_factory: AudioStreamFactory,
+        on_audio_level: Callable[[AudioLevelSnapshot], None],
     ) -> FakeCapture:
         del stream_factory
         persisted = self.session_service.get_session(session_id)
@@ -107,6 +115,7 @@ class FakeCaptureFactory:
             fail_start=self.fail_start,
             fail_stop=self.fail_stop,
             stop_state=self.stop_state,
+            on_audio_level=on_audio_level,
         )
         return self.capture
 
@@ -206,6 +215,8 @@ def test_start_persists_consent_before_capture_and_stop_records_session(tmp_path
     assert [config.audio_format.channels for config in captures.calls[0]] == [1, 2]
     assert captures.capture is not None
     assert captures.capture.started and captures.capture.stopped
+    assert service.latest_levels().microphone == 0.25
+    assert service.latest_levels().system_audio == 0.75
     assert result.session.state is SessionState.RECORDED
     assert sessions.get_session(draft.session_id) == result.session
     assert not service.is_recording
