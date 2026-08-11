@@ -121,6 +121,19 @@ def test_recording_state_has_persistent_timer_sources_and_stop_control(qtbot: Qt
     assert page.microphone_level.value() == 42
     assert page.system_audio_level.value() == 91
 
+    with qtbot.waitSignal(page.pause_requested):
+        qtbot.mouseClick(page.pause_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    page.show_paused()
+    assert page.recording_pill.text() == "Ⅱ PAUSED"
+    assert page.pause_button.text() == "Resume recording"
+    assert page.microphone_level.value() == 0
+    assert page.system_audio_level.value() == 0
+
+    with qtbot.waitSignal(page.resume_requested):
+        qtbot.mouseClick(page.pause_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    page.show_resumed()
+    assert page.recording_pill.text() == "● RECORDING"
+
     with qtbot.waitSignal(page.stop_requested):
         qtbot.mouseClick(page.stop_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 

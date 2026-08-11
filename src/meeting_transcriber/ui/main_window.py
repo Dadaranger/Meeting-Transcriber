@@ -375,6 +375,8 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.home_page)
         self.recording_page = RecordingPage()
         self.recording_page.begin_requested.connect(self._begin_recording)
+        self.recording_page.pause_requested.connect(self._pause_recording)
+        self.recording_page.resume_requested.connect(self._resume_recording)
         self.recording_page.stop_requested.connect(self._stop_recording)
         self.recording_page.back_requested.connect(self._show_home)
         self.pages.addWidget(self.recording_page)
@@ -437,8 +439,33 @@ class MainWindow(QMainWindow):
         self.recording_page.show_recording(session)
         self._refresh_levels()
         self.level_timer.start()
+        self.global_recording_indicator.setText("● RECORDING")
         self.global_recording_indicator.show()
         self._set_navigation_enabled(False)
+        self.statusBar().showMessage(f"Recording - {session.title}")
+
+    def _pause_recording(self) -> None:
+        try:
+            session = self.recording_service.pause()
+        except RecordingWorkflowError as error:
+            self.statusBar().showMessage(f"Recording could not pause - {error}")
+            QMessageBox.critical(self, "Recording could not pause", str(error))
+            return
+        self.level_timer.stop()
+        self.recording_page.show_paused()
+        self.global_recording_indicator.setText("Ⅱ PAUSED")
+        self.statusBar().showMessage(f"Paused - {session.title}")
+
+    def _resume_recording(self) -> None:
+        try:
+            session = self.recording_service.resume()
+        except RecordingWorkflowError as error:
+            self.statusBar().showMessage(f"Recording could not resume - {error}")
+            QMessageBox.critical(self, "Recording could not resume", str(error))
+            return
+        self.recording_page.show_resumed()
+        self.global_recording_indicator.setText("● RECORDING")
+        self.level_timer.start()
         self.statusBar().showMessage(f"Recording - {session.title}")
 
     def _stop_recording(self) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -48,6 +49,10 @@ class RecordingStopError(RecordingWorkflowError):
 class CoordinatedCapture(Protocol):
     def start(self) -> CaptureManifest: ...
 
+    def pause(self, *, timeout_seconds: float = 2.0) -> None: ...
+
+    def resume(self) -> None: ...
+
     def stop(self, *, timeout_seconds: float = 5.0) -> CaptureManifest: ...
 
 
@@ -85,6 +90,10 @@ class RecordingWorkflow(Protocol):
     ) -> MeetingSession: ...
 
     def stop(self) -> RecordingStopResult: ...
+
+    def pause(self) -> MeetingSession: ...
+
+    def resume(self) -> MeetingSession: ...
 
     def latest_levels(self) -> RecordingLevels: ...
 
@@ -233,6 +242,42 @@ class MeetingRecordingService:
                 "Audio capture stopped, but the meeting state could not be persisted"
             ) from error
         return RecordingStopResult(session, manifest)
+
+    def pause(self) -> MeetingSession:
+        active = self._active
+        if active is None:
+            raise RecordingWorkflowError("No meeting is currently recording")
+        try:
+            active.capture.pause()
+        except Exception as error:
+            raise RecordingWorkflowError("Audio capture could not pause cleanly") from error
+        try:
+            session = self.session_service.transition_state(active.session_id, SessionState.PAUSED)
+        except (OSError, ValueError) as error:
+            with suppress(Exception):
+                active.capture.resume()
+            raise RecordingWorkflowError("Paused meeting state could not be persisted") from error
+        with self._level_lock:
+            self._latest_levels = RecordingLevels()
+        return session
+
+    def resume(self) -> MeetingSession:
+        active = self._active
+        if active is None:
+            raise RecordingWorkflowError("No meeting is currently paused")
+        current = self.session_service.get_session(active.session_id)
+        if current.state is not SessionState.PAUSED:
+            raise RecordingWorkflowError("Meeting is not paused")
+        try:
+            active.capture.resume()
+        except Exception as error:
+            raise RecordingWorkflowError("Audio capture could not resume cleanly") from error
+        try:
+            return self.session_service.transition_state(active.session_id, SessionState.RECORDING)
+        except (OSError, ValueError) as error:
+            with suppress(Exception):
+                active.capture.pause()
+            raise RecordingWorkflowError("Resumed meeting state could not be persisted") from error
 
     @staticmethod
     def _select_device(

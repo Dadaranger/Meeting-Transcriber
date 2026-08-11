@@ -32,6 +32,8 @@ class RecordingPage(QWidget):
 
     begin_requested = Signal(str, str, str)
     back_requested = Signal()
+    pause_requested = Signal()
+    resume_requested = Signal()
     stop_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
@@ -154,6 +156,10 @@ class RecordingPage(QWidget):
 
         live_actions = QHBoxLayout()
         live_actions.addStretch()
+        self.pause_button = QPushButton("Pause recording")
+        self.pause_button.setAccessibleName("Pause recording")
+        self.pause_button.clicked.connect(self._emit_pause_toggle)
+        live_actions.addWidget(self.pause_button)
         self.stop_button = QPushButton("Stop recording")
         self.stop_button.setObjectName("dangerButton")
         self.stop_button.setAccessibleName("Stop and finalize recording")
@@ -165,6 +171,8 @@ class RecordingPage(QWidget):
         root.addStretch()
 
         self._recording_started_monotonic: float | None = None
+        self._pause_started_monotonic: float | None = None
+        self._paused_duration_seconds = 0.0
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1_000)
         self._elapsed_timer.timeout.connect(self._update_elapsed)
@@ -172,6 +180,8 @@ class RecordingPage(QWidget):
     def load_session(self, session: MeetingSession, catalog: AudioDeviceCatalog) -> None:
         self._elapsed_timer.stop()
         self._recording_started_monotonic = None
+        self._pause_started_monotonic = None
+        self._paused_duration_seconds = 0.0
         self.recording_card.hide()
         self.setup_card.show()
         self._session_id = session.session_id
@@ -203,17 +213,41 @@ class RecordingPage(QWidget):
         self.recording_card.show()
         self.update_levels(0.0, 0.0)
         self._recording_started_monotonic = time.monotonic()
+        self._pause_started_monotonic = None
+        self._paused_duration_seconds = 0.0
+        self.recording_pill.setText("● RECORDING")
+        self.pause_button.setText("Pause recording")
+        self.pause_button.setAccessibleName("Pause recording")
         self._update_elapsed()
         self._elapsed_timer.start()
 
     def recording_finished(self) -> None:
         self._elapsed_timer.stop()
         self._recording_started_monotonic = None
+        self._pause_started_monotonic = None
+        self._paused_duration_seconds = 0.0
         self.recording_card.hide()
 
     def update_levels(self, microphone: float, system_audio: float) -> None:
         self.microphone_level.setValue(round(max(0.0, min(1.0, microphone)) * 100))
         self.system_audio_level.setValue(round(max(0.0, min(1.0, system_audio)) * 100))
+
+    def show_paused(self) -> None:
+        if self._pause_started_monotonic is None:
+            self._pause_started_monotonic = time.monotonic()
+        self.recording_pill.setText("Ⅱ PAUSED")
+        self.pause_button.setText("Resume recording")
+        self.pause_button.setAccessibleName("Resume recording")
+        self.update_levels(0.0, 0.0)
+        self._update_elapsed()
+
+    def show_resumed(self) -> None:
+        if self._pause_started_monotonic is not None:
+            self._paused_duration_seconds += time.monotonic() - self._pause_started_monotonic
+        self._pause_started_monotonic = None
+        self.recording_pill.setText("● RECORDING")
+        self.pause_button.setText("Pause recording")
+        self.pause_button.setAccessibleName("Pause recording")
 
     def show_device_error(self, message: str) -> None:
         self.microphone_combo.clear()
@@ -261,11 +295,31 @@ class RecordingPage(QWidget):
             return
         self.begin_requested.emit(self._session_id, microphone_id, loopback_id)
 
+    def _emit_pause_toggle(self) -> None:
+        if self._pause_started_monotonic is None:
+            self.pause_requested.emit()
+        else:
+            self.resume_requested.emit()
+
     def _update_elapsed(self) -> None:
         if self._recording_started_monotonic is None:
             elapsed_seconds = 0
         else:
-            elapsed_seconds = max(0, int(time.monotonic() - self._recording_started_monotonic))
+            now = time.monotonic()
+            active_pause = (
+                now - self._pause_started_monotonic
+                if self._pause_started_monotonic is not None
+                else 0.0
+            )
+            elapsed_seconds = max(
+                0,
+                int(
+                    now
+                    - self._recording_started_monotonic
+                    - self._paused_duration_seconds
+                    - active_pause
+                ),
+            )
         hours, remainder = divmod(elapsed_seconds, 3_600)
         minutes, seconds = divmod(remainder, 60)
         self.elapsed_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")

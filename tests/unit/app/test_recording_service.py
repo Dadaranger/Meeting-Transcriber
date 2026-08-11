@@ -60,6 +60,7 @@ class FakeCapture:
         self.stop_state = stop_state
         self.on_audio_level = on_audio_level
         self.started = False
+        self.paused = False
         self.stopped = False
 
     def start(self) -> CaptureManifest:
@@ -77,6 +78,14 @@ class FakeCapture:
             raise OSError("Synthetic shutdown failure")
         self.stopped = True
         return _manifest(self.session_id, self.stop_state)
+
+    def pause(self, *, timeout_seconds: float = 2.0) -> None:
+        assert timeout_seconds == 2.0
+        self.paused = True
+
+    def resume(self) -> None:
+        assert self.paused
+        self.paused = False
 
 
 class FakeCaptureFactory:
@@ -236,6 +245,24 @@ def test_missing_selected_device_does_not_persist_consent(tmp_path: Path) -> Non
 
     assert captures.calls == []
     assert sessions.get_session(draft.session_id).consent_confirmed_at is None
+
+
+def test_pause_and_resume_persist_capture_and_session_state(tmp_path: Path) -> None:
+    service, sessions, _discovery, captures = _service(tmp_path)
+    draft = sessions.create_draft("Weekly sync")
+    service.start(draft.session_id, "mic", "loopback", consent_confirmed=True)
+
+    paused = service.pause()
+
+    assert paused.state is SessionState.PAUSED
+    assert captures.capture is not None and captures.capture.paused
+    assert service.latest_levels().microphone == 0.0
+    assert service.latest_levels().system_audio == 0.0
+
+    resumed = service.resume()
+
+    assert resumed.state is SessionState.RECORDING
+    service.stop()
 
 
 def test_capture_start_failure_marks_session_interrupted(tmp_path: Path) -> None:

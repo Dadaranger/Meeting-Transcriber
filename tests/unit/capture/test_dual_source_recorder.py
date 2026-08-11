@@ -11,7 +11,7 @@ import pytest
 from meeting_transcriber.capture.devices import AudioDevice, AudioDeviceKind
 from meeting_transcriber.capture.formats import AudioFormat
 from meeting_transcriber.capture.manifest import CaptureJournalState
-from meeting_transcriber.capture.recorder import DualSourceCapture
+from meeting_transcriber.capture.recorder import CaptureCoordinatorState, DualSourceCapture
 from meeting_transcriber.capture.streams import SourceCaptureConfig
 
 
@@ -32,10 +32,13 @@ class FakeInputStream:
         self.started = False
         self.stopped = False
         self.closed = False
+        self.start_count = 0
+        self.stop_count = 0
         self.failure_event = Event()
 
     def start(self) -> None:
         self.started = True
+        self.start_count += 1
 
     def read(self, frame_count: int) -> bytes:
         assert frame_count == 2
@@ -48,6 +51,7 @@ class FakeInputStream:
 
     def stop(self) -> None:
         self.stopped = True
+        self.stop_count += 1
 
     def close(self) -> None:
         self.closed = True
@@ -168,6 +172,39 @@ def test_source_failure_stops_both_streams_and_marks_interruption(tmp_path: Path
     assert manifest.state is CaptureJournalState.INTERRUPTED
     assert any("Synthetic device loss" in error for error in manifest.errors)
     assert loopback.stopped and loopback.closed
+
+
+def test_pause_quiesces_both_streams_and_resume_continues_capture(tmp_path: Path) -> None:
+    streams = {
+        AudioDeviceKind.MICROPHONE: FakeInputStream(b"\x01\x00" * 2),
+        AudioDeviceKind.SYSTEM_LOOPBACK: FakeInputStream(b"\x02\x00" * 2),
+    }
+    capture = DualSourceCapture(
+        "session-pause",
+        tmp_path,
+        _configs(),
+        FakeStreamFactory(streams),
+        chunk_duration_seconds=0.5,
+    )
+    capture.start()
+    _wait_for(lambda: all(stream.read_count >= 2 for stream in streams.values()))
+
+    capture.pause()
+    paused_counts = {source: stream.read_count for source, stream in streams.items()}
+    time.sleep(0.03)
+
+    assert capture.state is CaptureCoordinatorState.PAUSED
+    assert all(stream.stop_count == 1 for stream in streams.values())
+    assert {source: stream.read_count for source, stream in streams.items()} == paused_counts
+
+    capture.resume()
+    _wait_for(
+        lambda: all(stream.read_count > paused_counts[source] for source, stream in streams.items())
+    )
+    manifest = capture.stop()
+
+    assert manifest.state is CaptureJournalState.STOPPED
+    assert all(stream.start_count == 2 for stream in streams.values())
 
 
 def test_dual_capture_requires_one_device_of_each_kind(tmp_path: Path) -> None:

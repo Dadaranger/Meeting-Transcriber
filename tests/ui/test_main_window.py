@@ -89,6 +89,14 @@ class FakeRecordingWorkflow:
     def latest_levels(self) -> RecordingLevels:
         return RecordingLevels(microphone=0.2, system_audio=0.8)
 
+    def pause(self) -> MeetingSession:
+        session = self.sessions.recent_sessions()[0]
+        return self.sessions.transition_state(session.session_id, SessionState.PAUSED)
+
+    def resume(self) -> MeetingSession:
+        session = self.sessions.recent_sessions()[0]
+        return self.sessions.transition_state(session.session_id, SessionState.RECORDING)
+
 
 def test_main_window_exposes_home_and_diagnostics_pages(qtbot: QtBot, tmp_path: Path) -> None:
     service = MeetingSessionService(SessionStore(tmp_path))
@@ -196,6 +204,25 @@ def test_consent_gated_ui_starts_and_stops_visible_recording(
     assert not window.home_button.isEnabled()
     assert window.recording_page.microphone_level.value() == 20
     assert window.recording_page.system_audio_level.value() == 80
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.recording_page.pause_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert service.recent_sessions()[0].state is SessionState.PAUSED
+    assert window.recording_page.recording_pill.text() == "Ⅱ PAUSED"
+    assert window.recording_page.pause_button.text() == "Resume recording"
+    assert window.recording_page.microphone_level.value() == 0
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.recording_page.pause_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert service.recent_sessions()[0].state is SessionState.RECORDING
+    assert window.recording_page.recording_pill.text() == "● RECORDING"
+    assert window.recording_page.pause_button.text() == "Pause recording"
 
     qtbot.mouseClick(  # type: ignore[no-untyped-call]
         window.recording_page.stop_button,
