@@ -11,7 +11,7 @@ from meeting_transcriber.app.recording_service import (
     RecordingWorkflow,
     RecordingWorkflowError,
 )
-from meeting_transcriber.app.session_service import MeetingSessionService
+from meeting_transcriber.app.session_service import MeetingSessionService, SessionRecoveryError
 
 __all__ = [
     "MeetingRecordingService",
@@ -24,4 +24,5 @@ __all__ = [
     "RecordingStopResult",
     "RecordingWorkflow",
     "RecordingWorkflowError",
+    "SessionRecoveryError",
 ]

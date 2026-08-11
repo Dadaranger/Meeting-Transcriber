@@ -35,11 +35,14 @@ output device.
 Milestone 3 now connects Windows device discovery and the recoverable dual-source
 capture engine to a consent-gated desktop workflow. A meeting draft opens a
 device-review screen, recording cannot begin until the acknowledgement is checked,
-and the live screen keeps elapsed time and stop controls visible. Consent version,
-capture scope, session state, WAV chunks, and capture timing are persisted locally.
+and the live screen keeps independent source levels, elapsed active time,
+pause/resume, and stop controls visible. Consent version, capture scope, session
+state, WAV chunks, and capture timing are persisted locally.
 
-Audio meters, pause/resume, interrupted-session recovery UI, transcription, and
-structured export remain upcoming milestones.
+The History page identifies abandoned recordings after restart, only offers
+recovery when a capture manifest and finalized WAV chunks exist, and can open the
+exact local meeting folder. A timed preflight source test, disk-space indicator,
+long-session soak testing, transcription, and structured export remain upcoming.
 
 ## Run the development application
 

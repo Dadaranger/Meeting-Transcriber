@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import platform
 import sys
+from collections.abc import Callable
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal, qVersion
-from PySide6.QtGui import QCloseEvent, QFont
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal, qVersion
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -25,7 +27,10 @@ from meeting_transcriber.app.recording_service import (
     RecordingWorkflow,
     RecordingWorkflowError,
 )
-from meeting_transcriber.app.session_service import MeetingSessionService
+from meeting_transcriber.app.session_service import (
+    MeetingSessionService,
+    SessionRecoveryError,
+)
 from meeting_transcriber.capture.devices import (
     AudioDeviceCatalog,
     AudioDeviceDiscovery,
@@ -38,6 +43,7 @@ from meeting_transcriber.capture.windows_pyaudio import (
 from meeting_transcriber.domain.session import SessionState
 from meeting_transcriber.infrastructure.paths import default_meetings_directory
 from meeting_transcriber.storage.session_store import SessionStore
+from meeting_transcriber.ui.history_page import HistoryPage
 from meeting_transcriber.ui.recording_page import RecordingPage
 
 APP_STYLE = """
@@ -51,7 +57,8 @@ QFrame#sidebar {
     background-color: #101827;
     border-right: 1px solid #243148;
 }
-QFrame#hero, QFrame#featureCard, QFrame#diagnosticCard, QFrame#recordingCard {
+QFrame#hero, QFrame#featureCard, QFrame#diagnosticCard, QFrame#recordingCard,
+QFrame#historyCard {
     background-color: #131e31;
     border: 1px solid #263550;
     border-radius: 14px;
@@ -162,6 +169,20 @@ QProgressBar::chunk {
     background-color: #5eead4;
     border-radius: 5px;
 }
+QListWidget {
+    background-color: #0f192a;
+    border: 1px solid #30415f;
+    border-radius: 8px;
+    padding: 5px;
+}
+QListWidget::item {
+    border-bottom: 1px solid #263550;
+    padding: 12px;
+}
+QListWidget::item:selected {
+    background-color: #173c42;
+    color: #9af8e9;
+}
 QStatusBar {
     background-color: #101827;
     color: #8fa0b8;
@@ -176,6 +197,10 @@ def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> 
         label.setObjectName(object_name)
     label.setWordWrap(wrap)
     return label
+
+
+def open_local_folder(path: Path) -> bool:
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 
 class FeatureCard(QFrame):
@@ -348,12 +373,15 @@ class MainWindow(QMainWindow):
         session_service: MeetingSessionService | None = None,
         audio_backend: AudioDeviceDiscovery | None = None,
         recording_service: RecordingWorkflow | None = None,
+        folder_opener: Callable[[Path], bool] | None = None,
     ):
         super().__init__()
         self.session_service = session_service or MeetingSessionService(
             SessionStore(default_meetings_directory())
         )
         self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
+        self.folder_opener = folder_opener or open_local_folder
+        abandoned_sessions = self.session_service.recover_abandoned_recordings()
         self.recording_service = recording_service or MeetingRecordingService(
             self.session_service,
             self.audio_backend,
@@ -373,6 +401,11 @@ class MainWindow(QMainWindow):
         self.home_page = HomePage()
         self.home_page.draft_requested.connect(self._create_draft)
         self.pages.addWidget(self.home_page)
+        self.history_page = HistoryPage()
+        self.history_page.refresh_requested.connect(self._refresh_history)
+        self.history_page.open_folder_requested.connect(self._open_session_folder)
+        self.history_page.recover_requested.connect(self._recover_session)
+        self.pages.addWidget(self.history_page)
         self.recording_page = RecordingPage()
         self.recording_page.begin_requested.connect(self._begin_recording)
         self.recording_page.pause_requested.connect(self._pause_recording)
@@ -388,7 +421,12 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(shell)
 
         status = QStatusBar()
-        status.showMessage("Ready - local processing by default")
+        if abandoned_sessions:
+            status.showMessage(
+                f"Recovered {len(abandoned_sessions)} interrupted recording state(s)"
+            )
+        else:
+            status.showMessage("Ready - local processing by default")
         self.global_recording_indicator = _label("● RECORDING", "recordingPill")
         self.global_recording_indicator.hide()
         status.addPermanentWidget(self.global_recording_indicator)
@@ -507,8 +545,53 @@ class MainWindow(QMainWindow):
             self.pages.setCurrentWidget(self.home_page)
             self.home_button.setChecked(True)
 
+    def _show_history(self) -> None:
+        if self.recording_service.is_recording:
+            return
+        self._refresh_history()
+        self.pages.setCurrentWidget(self.history_page)
+        self.history_button.setChecked(True)
+
+    def _refresh_history(self) -> None:
+        sessions = self.session_service.recent_sessions()
+        recoverable_ids = frozenset(
+            session.session_id
+            for session in sessions
+            if self.session_service.has_recoverable_audio(session.session_id)
+        )
+        self.history_page.load_sessions(sessions, recoverable_ids)
+
+    def _open_session_folder(self, session_id: str) -> None:
+        directory = self.session_service.session_directory(session_id)
+        if self.folder_opener(directory):
+            self.statusBar().showMessage(f"Opened meeting folder - {directory}", 8_000)
+            return
+        self.statusBar().showMessage(f"Could not open meeting folder - {directory}")
+        QMessageBox.warning(
+            self,
+            "Meeting folder could not be opened",
+            f"Open this folder manually:\n{directory}",
+        )
+
+    def _recover_session(self, session_id: str) -> None:
+        try:
+            recovered = self.session_service.recover_interrupted_session(session_id)
+        except SessionRecoveryError as error:
+            QMessageBox.warning(self, "Session could not be recovered", str(error))
+            self.statusBar().showMessage(f"Recovery failed - {error}")
+            self._refresh_history()
+            return
+        self._refresh_history()
+        self.statusBar().showMessage(f"Recovered finalized audio - {recovered.title}", 10_000)
+        QMessageBox.information(
+            self,
+            "Recording recovered",
+            "Finalized audio chunks are ready for the transcription milestone.",
+        )
+
     def _set_navigation_enabled(self, enabled: bool) -> None:
         self.home_button.setEnabled(enabled)
+        self.history_button.setEnabled(enabled)
         self.diagnostics_button.setEnabled(enabled)
 
     def _refresh_levels(self) -> None:
@@ -556,13 +639,15 @@ class MainWindow(QMainWindow):
         layout.addSpacing(22)
 
         self.home_button = QPushButton("Home")
+        self.history_button = QPushButton("History")
         self.diagnostics_button = QPushButton("Diagnostics")
-        for button in (self.home_button, self.diagnostics_button):
+        for button in (self.home_button, self.history_button, self.diagnostics_button):
             button.setCheckable(True)
             button.setAutoExclusive(True)
             layout.addWidget(button)
         self.home_button.setChecked(True)
         self.home_button.clicked.connect(lambda: self.pages.setCurrentWidget(self.home_page))
+        self.history_button.clicked.connect(self._show_history)
         self.diagnostics_button.clicked.connect(
             lambda: self.pages.setCurrentWidget(self.diagnostics_page)
         )

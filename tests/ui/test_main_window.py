@@ -1,3 +1,5 @@
+import json
+import wave
 from pathlib import Path
 
 import pytest
@@ -107,7 +109,7 @@ def test_main_window_exposes_home_and_diagnostics_pages(qtbot: QtBot, tmp_path: 
 
     assert window.isVisible()
     assert window.windowTitle() == "Meeting Transcriber"
-    assert window.pages.count() == 3
+    assert window.pages.count() == 4
     assert window.pages.currentWidget() is window.home_page
 
 
@@ -234,3 +236,65 @@ def test_consent_gated_ui_starts_and_stops_visible_recording(
     assert window.global_recording_indicator.isHidden()
     assert window.home_button.isEnabled()
     assert window.pages.currentWidget() is window.home_page
+
+
+def test_history_recovers_audio_and_opens_session_folder(
+    qtbot: QtBot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = MeetingSessionService(SessionStore(tmp_path))
+    draft = service.create_draft("Interrupted interview")
+    service.confirm_recording_consent(draft.session_id)
+    service.transition_state(draft.session_id, SessionState.RECORDING)
+    service.transition_state(draft.session_id, SessionState.INTERRUPTED)
+    directory = service.session_directory(draft.session_id)
+    (directory / "capture.json").write_text(
+        json.dumps({"session_id": draft.session_id}),
+        encoding="utf-8",
+    )
+    audio_directory = directory / "audio"
+    audio_directory.mkdir()
+    with wave.open(str(audio_directory / "microphone_0001.wav"), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(48_000)
+        wav_file.writeframes(b"\x00\x00" * 8)
+    opened: list[Path] = []
+
+    def fake_open_folder(path: Path) -> bool:
+        opened.append(path)
+        return True
+
+    workflow = FakeRecordingWorkflow(service)
+    window = MainWindow(
+        service,
+        FakeAudioDiscovery(),
+        workflow,
+        fake_open_folder,
+    )
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Ok,
+    )
+
+    qtbot.mouseClick(window.history_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert window.pages.currentWidget() is window.history_page
+    assert window.history_page.recover_button.isEnabled()
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.history_page.open_folder_button,
+        Qt.MouseButton.LeftButton,
+    )
+    assert opened == [directory]
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.history_page.recover_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert service.get_session(draft.session_id).state is SessionState.RECORDED
+    assert not window.history_page.recover_button.isEnabled()

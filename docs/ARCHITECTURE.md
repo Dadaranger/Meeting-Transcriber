@@ -131,6 +131,16 @@ The capture journal is atomically replaced whenever a chunk is finalized. It
 retains each source's start offset, format, device fingerprint, chunk boundaries,
 and interruption errors so completed chunks remain discoverable after a crash.
 
+Live meters are derived from normalized signed-16-bit PCM peaks on capture worker
+threads. Workers publish only immutable level snapshots; the application service
+stores the latest values under a lock and the Qt thread polls them. Meter callbacks
+are non-critical and cannot terminate recording.
+
+Pause waits for both workers to acknowledge a buffer boundary, then stops both
+device streams. Resume restarts both streams and begins a new monotonic timeline
+segment, preserving the real paused gap in chunk metadata. Stop is valid while
+either recording or paused.
+
 The system channel may contain multiple remote speakers. It may also contain the
 local user's voice if the meeting software plays sidetone or echo. Timeline merge
 must therefore retain confidence and source-channel metadata instead of assuming
@@ -175,6 +185,12 @@ Meetings/
 Large/audio/model artifacts must never be committed to Git. Generated artifacts
 will be safe to remove and recreate except for the source `audio/` chunks and
 explicit user edits stored in the canonical documents.
+
+On startup, persisted `recording` or `paused` sessions cannot still own a live
+stream, so they transition to `interrupted`. The application labels a session
+recoverable only when both `capture.json` and at least one finalized WAV chunk are
+present. Explicit recovery advances that session to `recorded`; missing-artifact
+sessions remain interrupted for diagnostics.
 
 ## Canonical transcript schema (conceptual)
 

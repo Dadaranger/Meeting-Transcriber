@@ -78,6 +78,12 @@ allows replacing it without changing application or UI code.
 - Forced termination loses no more than the active chunk.
 - A recovered session can proceed to processing.
 
+**Current implementation status:** consent/preflight device review, live dual
+meters, start/pause/resume/stop, atomic state transitions, interrupted-session
+detection, artifact-gated recovery, meeting history, and open-folder actions are
+implemented. A timed source test, disk-space indicator, forced-termination test,
+and long-session soak validation remain before Milestone 3 is closed.
+
 ## Milestone 4 — Offline transcription
 
 **Outcome:** a recorded session becomes a timestamped transcript without an
