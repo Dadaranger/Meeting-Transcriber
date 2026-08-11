@@ -18,6 +18,22 @@ class SessionState(StrEnum):
     EXPORTED = "exported"
 
 
+class ConsentCaptureSource(StrEnum):
+    MICROPHONE = "microphone"
+    SYSTEM_AUDIO = "system_audio"
+
+
+CONSENT_STATEMENT_VERSION: Final[int] = 1
+CONSENT_STATEMENT: Final[str] = (
+    "I confirm that participants have been informed and that I have obtained any "
+    "consent required for this recording."
+)
+REQUIRED_CONSENT_SOURCES: Final[tuple[ConsentCaptureSource, ...]] = (
+    ConsentCaptureSource.MICROPHONE,
+    ConsentCaptureSource.SYSTEM_AUDIO,
+)
+
+
 ALLOWED_TRANSITIONS: Final[dict[SessionState, frozenset[SessionState]]] = {
     SessionState.DRAFT: frozenset({SessionState.RECORDING}),
     SessionState.RECORDING: frozenset(
@@ -53,7 +69,7 @@ def _validated_timestamp(value: datetime | None) -> datetime:
 class MeetingSession:
     """Immutable lifecycle state for one meeting session."""
 
-    SCHEMA_VERSION: ClassVar[int] = 1
+    SCHEMA_VERSION: ClassVar[int] = 2
 
     session_id: str
     title: str
@@ -62,6 +78,8 @@ class MeetingSession:
     updated_at: datetime
     revision: int = 0
     consent_confirmed_at: datetime | None = None
+    consent_text_version: int | None = None
+    consent_capture_sources: tuple[ConsentCaptureSource, ...] = ()
     started_at: datetime | None = None
     stopped_at: datetime | None = None
 
@@ -71,6 +89,14 @@ class MeetingSession:
             raise ValueError("Meeting title cannot be blank")
         if self.revision < 0:
             raise ValueError("Session revision cannot be negative")
+        if self.consent_confirmed_at is None:
+            if self.consent_text_version is not None or self.consent_capture_sources:
+                raise ValueError("Consent details require a confirmation timestamp")
+        else:
+            if self.consent_text_version is None or self.consent_text_version < 0:
+                raise ValueError("Confirmed consent requires a valid text version")
+            if len(set(self.consent_capture_sources)) != len(self.consent_capture_sources):
+                raise ValueError("Consent capture sources cannot contain duplicates")
         for timestamp in (
             self.created_at,
             self.updated_at,
@@ -101,15 +127,39 @@ class MeetingSession:
             updated_at=timestamp,
         )
 
-    def confirm_consent(self, *, at: datetime | None = None) -> MeetingSession:
+    @property
+    def has_current_recording_consent(self) -> bool:
+        return (
+            self.consent_confirmed_at is not None
+            and self.consent_text_version == CONSENT_STATEMENT_VERSION
+            and frozenset(self.consent_capture_sources) == frozenset(REQUIRED_CONSENT_SOURCES)
+        )
+
+    def confirm_consent(
+        self,
+        capture_sources: tuple[ConsentCaptureSource, ...] = REQUIRED_CONSENT_SOURCES,
+        *,
+        at: datetime | None = None,
+    ) -> MeetingSession:
         if self.state is not SessionState.DRAFT:
             raise InvalidSessionTransition("Consent can only be confirmed for a draft session")
         if self.consent_confirmed_at is not None:
-            return self
+            if (
+                self.consent_text_version == CONSENT_STATEMENT_VERSION
+                and self.consent_capture_sources == capture_sources
+            ):
+                return self
+            raise InvalidSessionTransition("Consent has already been confirmed for this session")
+        if frozenset(capture_sources) != frozenset(REQUIRED_CONSENT_SOURCES):
+            raise ValueError("Consent must cover microphone and system audio capture")
+        if len(set(capture_sources)) != len(capture_sources):
+            raise ValueError("Consent capture sources cannot contain duplicates")
         timestamp = _validated_timestamp(at)
         return replace(
             self,
             consent_confirmed_at=timestamp,
+            consent_text_version=CONSENT_STATEMENT_VERSION,
+            consent_capture_sources=capture_sources,
             updated_at=timestamp,
             revision=self.revision + 1,
         )
@@ -141,9 +191,11 @@ class MeetingSession:
         if (
             self.state is SessionState.DRAFT
             and target is SessionState.RECORDING
-            and self.consent_confirmed_at is None
+            and not self.has_current_recording_consent
         ):
-            raise InvalidSessionTransition("Consent must be confirmed before recording")
+            raise InvalidSessionTransition(
+                "Consent for microphone and system audio must be current before recording"
+            )
 
         timestamp = _validated_timestamp(at)
         started_at = self.started_at

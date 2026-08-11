@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID
 
-from meeting_transcriber.domain.session import MeetingSession, SessionState
+from meeting_transcriber.domain.session import (
+    ConsentCaptureSource,
+    MeetingSession,
+    SessionState,
+)
 
 
 class SessionDataError(ValueError):
@@ -52,6 +56,13 @@ def _required_string(document: Mapping[str, object], field: str) -> str:
 
 
 def _to_document(session: MeetingSession) -> dict[str, object]:
+    consent: dict[str, object] | None = None
+    if session.consent_confirmed_at is not None:
+        consent = {
+            "confirmed_at": _format_timestamp(session.consent_confirmed_at),
+            "text_version": session.consent_text_version,
+            "capture_sources": [source.value for source in session.consent_capture_sources],
+        }
     return {
         "schema_version": MeetingSession.SCHEMA_VERSION,
         "session_id": session.session_id,
@@ -60,19 +71,56 @@ def _to_document(session: MeetingSession) -> dict[str, object]:
         "created_at": _format_timestamp(session.created_at),
         "updated_at": _format_timestamp(session.updated_at),
         "revision": session.revision,
-        "consent_confirmed_at": _format_timestamp(session.consent_confirmed_at),
+        "consent": consent,
         "started_at": _format_timestamp(session.started_at),
         "stopped_at": _format_timestamp(session.stopped_at),
     }
 
 
+def _parse_consent(
+    document: Mapping[str, object],
+    schema_version: int,
+) -> tuple[datetime | None, int | None, tuple[ConsentCaptureSource, ...]]:
+    if schema_version == 1:
+        confirmed_at = _parse_timestamp(
+            document.get("consent_confirmed_at"),
+            "consent_confirmed_at",
+            optional=True,
+        )
+        return confirmed_at, 0 if confirmed_at is not None else None, ()
+
+    raw_consent = document.get("consent")
+    if raw_consent is None:
+        return None, None, ()
+    if not isinstance(raw_consent, Mapping):
+        raise SessionDataError("consent must be a JSON object or null")
+
+    confirmed_at = _parse_timestamp(raw_consent.get("confirmed_at"), "consent.confirmed_at")
+    text_version = raw_consent.get("text_version")
+    if isinstance(text_version, bool) or not isinstance(text_version, int):
+        raise SessionDataError("consent.text_version must be an integer")
+
+    raw_sources = raw_consent.get("capture_sources")
+    if not isinstance(raw_sources, list) or not all(
+        isinstance(source, str) for source in raw_sources
+    ):
+        raise SessionDataError("consent.capture_sources must be a list of strings")
+    try:
+        capture_sources = tuple(ConsentCaptureSource(source) for source in raw_sources)
+    except ValueError as error:
+        raise SessionDataError("consent.capture_sources contains an unknown source") from error
+    return confirmed_at, text_version, capture_sources
+
+
 def _from_document(document: Mapping[str, object]) -> MeetingSession:
     schema_version = document.get("schema_version")
-    if schema_version != MeetingSession.SCHEMA_VERSION:
+    if schema_version not in {1, MeetingSession.SCHEMA_VERSION}:
         raise UnsupportedSessionSchema(
-            f"Unsupported session schema {schema_version!r}; "
-            f"expected {MeetingSession.SCHEMA_VERSION}"
+            f"Unsupported session schema {schema_version!r}; expected 1 or "
+            f"{MeetingSession.SCHEMA_VERSION}"
         )
+    if not isinstance(schema_version, int):
+        raise UnsupportedSessionSchema(f"Unsupported session schema {schema_version!r}")
 
     revision = document.get("revision")
     if isinstance(revision, bool) or not isinstance(revision, int):
@@ -88,6 +136,9 @@ def _from_document(document: Mapping[str, object]) -> MeetingSession:
     updated_at = _parse_timestamp(document.get("updated_at"), "updated_at")
     if created_at is None or updated_at is None:
         raise SessionDataError("created_at and updated_at are required")
+    consent_confirmed_at, consent_text_version, consent_capture_sources = _parse_consent(
+        document, schema_version
+    )
 
     try:
         return MeetingSession(
@@ -97,11 +148,9 @@ def _from_document(document: Mapping[str, object]) -> MeetingSession:
             created_at=created_at,
             updated_at=updated_at,
             revision=revision,
-            consent_confirmed_at=_parse_timestamp(
-                document.get("consent_confirmed_at"),
-                "consent_confirmed_at",
-                optional=True,
-            ),
+            consent_confirmed_at=consent_confirmed_at,
+            consent_text_version=consent_text_version,
+            consent_capture_sources=consent_capture_sources,
             started_at=_parse_timestamp(document.get("started_at"), "started_at", optional=True),
             stopped_at=_parse_timestamp(document.get("stopped_at"), "stopped_at", optional=True),
         )

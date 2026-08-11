@@ -3,6 +3,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from meeting_transcriber.domain.session import (
+    CONSENT_STATEMENT_VERSION,
+    REQUIRED_CONSENT_SOURCES,
+    ConsentCaptureSource,
     InvalidSessionTransition,
     MeetingSession,
     SessionState,
@@ -20,6 +23,8 @@ def test_new_session_is_a_normalized_draft() -> None:
     assert session.created_at == START
     assert session.updated_at == START
     assert session.revision == 0
+    assert session.consent_confirmed_at is None
+    assert not session.has_current_recording_consent
 
 
 def test_recording_requires_confirmed_consent() -> None:
@@ -43,9 +48,21 @@ def test_recording_lifecycle_tracks_timestamps_and_revisions() -> None:
 
     assert session.state is SessionState.RECORDED
     assert session.consent_confirmed_at == consent_time
+    assert session.consent_text_version == CONSENT_STATEMENT_VERSION
+    assert session.consent_capture_sources == REQUIRED_CONSENT_SOURCES
     assert session.started_at == record_time
     assert session.stopped_at == stop_time
     assert session.revision == 5
+
+
+def test_consent_must_cover_both_capture_sources() -> None:
+    session = MeetingSession.new(session_id=SESSION_ID, now=START)
+
+    with pytest.raises(ValueError, match="microphone and system audio"):
+        session.confirm_consent(
+            (ConsentCaptureSource.MICROPHONE,),
+            at=START + timedelta(seconds=1),
+        )
 
 
 def test_invalid_state_transition_is_rejected() -> None:
