@@ -32,6 +32,7 @@ from meeting_transcriber.processing.preparation import (
     PreparedAudioPlan,
 )
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
+from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.transcript_store import (
     TranscriptNotFoundError,
     TranscriptStore,
@@ -109,12 +110,14 @@ class MeetingTranscriptionService:
         preparer: AudioPreparer | None = None,
         engine_factory: TranscriptionEngineFactory | None = None,
         notes_store: MeetingNotesWriter | None = None,
+        review_store: ReviewStore | None = None,
     ):
         self.session_service = session_service
         self.transcript_store = transcript_store
         self.preparer = preparer or AudioPreparationService()
         self.engine_factory = engine_factory or _default_engine_factory(model_cache)
         self.notes_store = notes_store or MeetingNotesStore(transcript_store.meeting_root)
+        self.review_store = review_store or ReviewStore(transcript_store.meeting_root)
         self._lock = Lock()
         self._cancel_event = Event()
         self._thread: Thread | None = None
@@ -346,7 +349,10 @@ class MeetingTranscriptionService:
 
     def _save_meeting_notes(self, transcript: TranscriptDocument) -> Path:
         session = self.session_service.get_session(transcript.session_id)
-        markdown = render_meeting_notes(session, transcript)
+        review = self.review_store.load_for_transcript(transcript)
+        if review.revision > 0:
+            self.review_store.save(review)
+        markdown = render_meeting_notes(session, review.apply(transcript))
         return self.notes_store.save(transcript.session_id, transcript.run_id, markdown)
 
     def _restore_recorded_state(self, session_id: str) -> None:

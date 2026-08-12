@@ -21,6 +21,7 @@ from meeting_transcriber.processing.engine import (
 )
 from meeting_transcriber.processing.preparation import PreparedAudioChunk, PreparedAudioPlan
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
+from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.session_store import SessionStore
 from meeting_transcriber.storage.transcript_store import TranscriptStore
 
@@ -303,6 +304,50 @@ def test_notes_failure_retry_reuses_completed_transcript_without_model_rerun(
     assert preparer.run_ids == [first.job_id]
     assert factory.engines == []
     assert MeetingNotesStore(tmp_path).notes_file(session_id).exists()
+
+
+def test_new_transcription_run_migrates_names_without_stale_text_edits(tmp_path: Path) -> None:
+    service, _sessions, transcripts, _preparer, factory, session_id = _service(
+        tmp_path,
+        [FakeEngine(), FakeEngine()],
+    )
+    service.start(
+        session_id,
+        profile=TranscriptionProfile.BALANCED,
+        language="en",
+        hotwords=None,
+        allow_download=False,
+    )
+    service.wait()
+    first_transcript = transcripts.load_transcript(session_id)
+    remote_segment = first_transcript.segments[1]
+    reviews = ReviewStore(tmp_path)
+    review = reviews.load_for_transcript(first_transcript)
+    review = review.rename_speaker(first_transcript, "remote", "Morgan")
+    review = review.correct_segment(first_transcript, remote_segment.segment_id, "Old correction")
+    reviews.save(review)
+
+    second_job = service.start(
+        session_id,
+        profile=TranscriptionProfile.ACCURATE,
+        language="en",
+        hotwords=None,
+        allow_download=False,
+    )
+    service.wait()
+
+    second_transcript = transcripts.load_transcript(session_id)
+    migrated = reviews.load(session_id)
+    markdown = MeetingNotesStore(tmp_path).notes_file(session_id).read_text(encoding="utf-8")
+    assert second_transcript.run_id == second_job.job_id
+    assert second_transcript.run_id != first_transcript.run_id
+    assert migrated.run_id == second_transcript.run_id
+    assert migrated.speaker_names[0].display_name == "Morgan"
+    assert migrated.segment_texts == ()
+    assert "Morgan" in markdown
+    assert "Remote reply" in markdown
+    assert "Old correction" not in markdown
+    assert len(factory.calls) == 2
 
 
 def test_startup_recovers_interrupted_transcription_job(tmp_path: Path) -> None:
