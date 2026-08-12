@@ -29,6 +29,7 @@ output device.
 - [Technical architecture](docs/ARCHITECTURE.md)
 - [Delivery roadmap](docs/ROADMAP.md)
 - [Development workflow](docs/DEVELOPMENT_WORKFLOW.md)
+- [Windows MVP release evidence](docs/RELEASE_EVIDENCE.md)
 
 ## Current status
 

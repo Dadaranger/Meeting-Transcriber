@@ -4,6 +4,9 @@ The build workflow produces a per-user Inno Setup installer, a portable archive,
 SHA-256 checksums, and GitHub build-provenance attestations. A tag matching `v*`
 also publishes those files to a GitHub Release.
 
+Record candidate-specific results and workflow links in
+[`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md).
+
 ## Before tagging
 
 - [ ] Update `pyproject.toml`, `meeting_transcriber.__version__`,
