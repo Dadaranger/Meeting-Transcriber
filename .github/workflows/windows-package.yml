@@ -126,7 +126,7 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: meeting-transcriber-windows-${{ github.ref_name }}
+          name: meeting-transcriber-windows-${{ github.run_id }}
           path: dist/installer/*
           if-no-files-found: error
           retention-days: 30
