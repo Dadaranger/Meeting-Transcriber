@@ -91,6 +91,23 @@ class MeetingReviewService:
         except (OSError, ValueError) as error:
             raise ReviewWorkflowError(str(error)) from error
 
+    def assign_segment(
+        self,
+        session_id: str,
+        segment_id: str,
+        speaker_id: str,
+    ) -> ReviewSnapshot:
+        snapshot = self.load(session_id)
+        try:
+            review = snapshot.review.assign_segment(
+                snapshot.source_transcript,
+                segment_id,
+                speaker_id,
+            )
+            return self._save_and_render(snapshot.source_transcript, review)
+        except (OSError, ValueError) as error:
+            raise ReviewWorkflowError(str(error)) from error
+
     def _save_and_render(
         self,
         transcript: TranscriptDocument,

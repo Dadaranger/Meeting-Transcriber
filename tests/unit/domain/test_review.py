@@ -33,6 +33,7 @@ def _transcript(run_id: str = RUN_ID) -> TranscriptDocument:
         speakers=(
             TranscriptSpeaker("local", "You", TranscriptSource.MICROPHONE),
             TranscriptSpeaker("remote", "Remote speakers", TranscriptSource.SYSTEM_AUDIO),
+            TranscriptSpeaker("remote-2", "Remote speaker 2", TranscriptSource.SYSTEM_AUDIO),
         ),
         segments=(
             TranscriptSegment(
@@ -89,11 +90,29 @@ def test_review_removes_correction_when_restored_to_model_value() -> None:
     assert review.apply(transcript) == transcript
 
 
+def test_review_reassigns_segment_within_source_and_can_restore_model_speaker() -> None:
+    transcript = _transcript()
+    review = TranscriptReview.new(transcript, at=START)
+
+    assigned = review.assign_segment(transcript, SEGMENT_ID, "remote-2")
+
+    assert assigned.revision == 1
+    assert assigned.apply(transcript).segments[0].speaker_id == "remote-2"
+    with pytest.raises(ValueError, match="its audio source"):
+        assigned.assign_segment(transcript, SEGMENT_ID, "local")
+
+    restored = assigned.assign_segment(transcript, SEGMENT_ID, "remote")
+    assert restored.revision == 2
+    assert restored.segment_speakers == ()
+    assert restored.apply(transcript) == transcript
+
+
 def test_new_transcript_run_migrates_names_but_not_stale_segment_text() -> None:
     first = _transcript()
     review = TranscriptReview.new(first, at=START)
     review = review.rename_speaker(first, "remote", "Morgan")
     review = review.correct_segment(first, SEGMENT_ID, "Project Atlas")
+    review = review.assign_segment(first, SEGMENT_ID, "remote-2")
     second = _transcript(SECOND_RUN_ID)
 
     migrated = review.migrate_speaker_names(second, at=START + timedelta(minutes=1))
@@ -102,6 +121,7 @@ def test_new_transcript_run_migrates_names_but_not_stale_segment_text() -> None:
     assert migrated.run_id == SECOND_RUN_ID
     assert migrated.revision == 1
     assert migrated.segment_texts == ()
+    assert migrated.segment_speakers == ()
     assert corrected.speakers[1].display_name == "Morgan"
     assert corrected.segments[0].text == "Project at less"
 

@@ -21,6 +21,7 @@ from meeting_transcriber.ui.review_page import TranscriptReviewPage
 SESSION_ID = "6039b71d-57fd-43e7-b78b-bdbb7a7b3498"
 RUN_ID = "d4d0baef-a334-4d73-a7fe-1b060965ab42"
 SEGMENT_ID = "371e9cee-8599-4c6d-b42d-d1349be38d74"
+SECOND_SEGMENT_ID = "bd31414d-e1ab-4249-9be5-bf408bd6e43f"
 START = datetime(2026, 8, 12, 5, 0, tzinfo=UTC)
 
 
@@ -43,6 +44,7 @@ def _snapshot() -> ReviewSnapshot:
         speakers=(
             TranscriptSpeaker("local", "You", TranscriptSource.MICROPHONE),
             TranscriptSpeaker("remote", "Remote speakers", TranscriptSource.SYSTEM_AUDIO),
+            TranscriptSpeaker("remote-2", "Remote speaker 2", TranscriptSource.SYSTEM_AUDIO),
         ),
         segments=(
             TranscriptSegment(
@@ -53,6 +55,15 @@ def _snapshot() -> ReviewSnapshot:
                 "Project at less",
                 TranscriptSource.SYSTEM_AUDIO,
                 confidence=0.8,
+            ),
+            TranscriptSegment(
+                SECOND_SEGMENT_ID,
+                1_500,
+                2_500,
+                "remote-2",
+                "A second voice",
+                TranscriptSource.SYSTEM_AUDIO,
+                confidence=0.6,
             ),
         ),
     )
@@ -76,12 +87,32 @@ def test_review_page_emits_explicit_speaker_and_segment_edits(qtbot: QtBot) -> N
         qtbot.mouseClick(page.save_segment_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     assert corrected.args == [SESSION_ID, SEGMENT_ID, "Project Atlas"]
 
+    page.segment_speaker_combo.setCurrentIndex(page.segment_speaker_combo.findData("remote-2"))
+    with qtbot.waitSignal(page.assignment_requested) as assigned:
+        qtbot.mouseClick(page.save_assignment_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    assert assigned.args == [SESSION_ID, SEGMENT_ID, "remote-2"]
+
+
+def test_review_page_labels_overlap_and_low_confidence_without_color_only_cues(
+    qtbot: QtBot,
+) -> None:
+    page = TranscriptReviewPage()
+    qtbot.addWidget(page)
+    page.load_snapshot(_session(), _snapshot())
+
+    assert "OVERLAP" in page.segment_list.item(0).text()
+    assert "LOW CONFIDENCE" not in page.segment_list.item(0).text()
+    assert "OVERLAP" in page.segment_list.item(1).text()
+    assert "LOW CONFIDENCE" in page.segment_list.item(1).text()
+    assert "below 70%" in page.segment_list.item(1).toolTip()
+
 
 def test_review_page_reset_controls_restore_model_values(qtbot: QtBot) -> None:
     snapshot = _snapshot()
     source = snapshot.source_transcript
     review = snapshot.review.rename_speaker(source, "remote", "Morgan")
     review = review.correct_segment(source, SEGMENT_ID, "Project Atlas")
+    review = review.assign_segment(source, SEGMENT_ID, "remote-2")
     corrected = ReviewSnapshot(source, review, review.apply(source), Path("meeting-notes.md"))
     page = TranscriptReviewPage()
     qtbot.addWidget(page)
@@ -89,7 +120,9 @@ def test_review_page_reset_controls_restore_model_values(qtbot: QtBot) -> None:
 
     qtbot.mouseClick(page.reset_speaker_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     qtbot.mouseClick(page.reset_segment_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    qtbot.mouseClick(page.reset_assignment_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
     assert page.speaker_name_input.text() == "Remote speakers"
     assert page.segment_text_edit.toPlainText() == "Project at less"
-    assert "revision 2" in page.review_status.text()
+    assert page.segment_speaker_combo.currentData() == "remote"
+    assert "revision 3" in page.review_status.text()

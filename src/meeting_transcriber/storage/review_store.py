@@ -10,6 +10,7 @@ from typing import cast
 from uuid import UUID
 
 from meeting_transcriber.domain.review import (
+    SegmentSpeakerCorrection,
     SegmentTextCorrection,
     SpeakerNameCorrection,
     TranscriptReview,
@@ -124,11 +125,19 @@ def _review_document(review: TranscriptReview) -> dict[str, object]:
             }
             for correction in review.segment_texts
         ],
+        "segment_speakers": [
+            {
+                "segment_id": correction.segment_id,
+                "speaker_id": correction.speaker_id,
+            }
+            for correction in review.segment_speakers
+        ],
     }
 
 
 def _parse_review(document: Mapping[str, object]) -> TranscriptReview:
-    if document.get("schema_version") != TranscriptReview.SCHEMA_VERSION:
+    schema_version = document.get("schema_version")
+    if schema_version not in {1, TranscriptReview.SCHEMA_VERSION}:
         raise ReviewDataError(
             f"Unsupported transcript review schema {document.get('schema_version')!r}"
         )
@@ -154,6 +163,20 @@ def _parse_review(document: Mapping[str, object]) -> TranscriptReview:
                 _mapping(item, "segment_texts[]") for item in _list(document, "segment_texts")
             )
         )
+        segment_speakers = (
+            tuple(
+                SegmentSpeakerCorrection(
+                    _string(correction, "segment_id"),
+                    _string(correction, "speaker_id"),
+                )
+                for correction in (
+                    _mapping(item, "segment_speakers[]")
+                    for item in _list(document, "segment_speakers")
+                )
+            )
+            if schema_version == TranscriptReview.SCHEMA_VERSION
+            else ()
+        )
         revision = document.get("revision")
         if isinstance(revision, bool) or not isinstance(revision, int):
             raise ReviewDataError("revision must be an integer")
@@ -164,6 +187,7 @@ def _parse_review(document: Mapping[str, object]) -> TranscriptReview:
             updated_at,
             speaker_names,
             segment_texts,
+            segment_speakers,
         )
     except (TypeError, ValueError) as error:
         if isinstance(error, ReviewDataError):

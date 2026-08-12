@@ -477,6 +477,7 @@ class MainWindow(QMainWindow):
         self.review_page = TranscriptReviewPage()
         self.review_page.rename_requested.connect(self._rename_review_speaker)
         self.review_page.correction_requested.connect(self._correct_review_segment)
+        self.review_page.assignment_requested.connect(self._assign_review_segment)
         self.review_page.open_notes_requested.connect(self._open_meeting_notes)
         self.review_page.back_requested.connect(self._show_history)
         self.pages.addWidget(self.review_page)
@@ -874,6 +875,27 @@ class MainWindow(QMainWindow):
             saved_message="Transcript correction saved.",
         )
         self.statusBar().showMessage("Transcript correction and meeting notes updated", 8_000)
+
+    def _assign_review_segment(
+        self,
+        session_id: str,
+        segment_id: str,
+        speaker_id: str,
+    ) -> None:
+        selected_speaker = self.review_page.selected_speaker_id()
+        try:
+            snapshot = self.review_service.assign_segment(session_id, segment_id, speaker_id)
+        except ReviewWorkflowError as error:
+            QMessageBox.warning(self, "Speaker assignment could not be saved", str(error))
+            return
+        self.review_page.load_snapshot(
+            self.session_service.get_session(session_id),
+            snapshot,
+            selected_speaker_id=selected_speaker,
+            selected_segment_id=segment_id,
+            saved_message="Speaker assignment saved.",
+        )
+        self.statusBar().showMessage("Speaker assignment and meeting notes updated", 8_000)
 
     def _recover_session(self, session_id: str) -> None:
         try:

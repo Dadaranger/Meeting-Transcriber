@@ -31,6 +31,7 @@ def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> 
 class TranscriptReviewPage(QWidget):
     rename_requested = Signal(str, str, str)
     correction_requested = Signal(str, str, str)
+    assignment_requested = Signal(str, str, str)
     open_notes_requested = Signal(str)
     back_requested = Signal()
 
@@ -93,6 +94,19 @@ class TranscriptReviewPage(QWidget):
         self.segment_list.itemSelectionChanged.connect(self._segment_changed)
         segment_row.addWidget(self.segment_list, 1)
         editor_column = QVBoxLayout()
+        editor_column.addWidget(_label("Assign selected speaker", "muted"))
+        self.segment_speaker_combo = QComboBox()
+        self.segment_speaker_combo.setAccessibleName("Speaker assigned to selected segment")
+        editor_column.addWidget(self.segment_speaker_combo)
+        assignment_actions = QHBoxLayout()
+        self.reset_assignment_button = QPushButton("Reset model speaker")
+        self.reset_assignment_button.clicked.connect(self._reset_segment_speaker)
+        assignment_actions.addWidget(self.reset_assignment_button)
+        assignment_actions.addStretch()
+        self.save_assignment_button = QPushButton("Save speaker assignment")
+        self.save_assignment_button.clicked.connect(self._emit_assignment)
+        assignment_actions.addWidget(self.save_assignment_button)
+        editor_column.addLayout(assignment_actions)
         editor_column.addWidget(_label("Correct selected text", "muted"))
         self.segment_text_edit = QPlainTextEdit()
         self.segment_text_edit.setAccessibleName("Corrected transcript segment text")
@@ -159,16 +173,32 @@ class TranscriptReviewPage(QWidget):
         self._speaker_changed()
 
         self.segment_list.clear()
+        overlapping_ids = _overlapping_segment_ids(snapshot.reviewed_transcript.segments)
         for segment in snapshot.reviewed_transcript.segments:
             speaker = reviewed_speakers[segment.speaker_id]
             confidence = (
                 f" · {segment.confidence * 100:.0f}%" if segment.confidence is not None else ""
             )
+            cues = []
+            if segment.segment_id in overlapping_ids:
+                cues.append("OVERLAP")
+            if segment.confidence is not None and segment.confidence < 0.70:
+                cues.append("LOW CONFIDENCE")
+            cue_text = f" · {' · '.join(cues)}" if cues else ""
+            source_label = segment.source.value.replace("_", " ").title()
             item = QListWidgetItem(
-                f"{_timestamp(segment.start_ms)} · {speaker.display_name}{confidence}\n"
+                f"{_timestamp(segment.start_ms)} · {speaker.display_name} · {source_label}"
+                f"{confidence}{cue_text}\n"
                 f"{segment.text}"
             )
             item.setData(Qt.ItemDataRole.UserRole, segment.segment_id)
+            if cues:
+                item.setToolTip(
+                    "Review cue(s): "
+                    + ", ".join(cues).lower()
+                    + ". Overlap means another segment occurs at the same time; low confidence "
+                    "means the model confidence is below 70%."
+                )
             self.segment_list.addItem(item)
         segment_index = self._segment_index(selected_segment_id)
         if self.segment_list.count():
@@ -179,7 +209,8 @@ class TranscriptReviewPage(QWidget):
         review = snapshot.review
         detail = (
             f"Review revision {review.revision}: {len(review.speaker_names)} renamed label(s), "
-            f"{len(review.segment_texts)} corrected segment(s)."
+            f"{len(review.segment_texts)} corrected segment(s), "
+            f"{len(review.segment_speakers)} reassigned speaker(s)."
         )
         self.review_status.setText(f"{saved_message} {detail}" if saved_message else detail)
 
@@ -210,6 +241,10 @@ class TranscriptReviewPage(QWidget):
         segment_id = self.selected_segment_id()
         if segment_id is None or self._snapshot is None:
             self.segment_text_edit.clear()
+            self.segment_speaker_combo.clear()
+            self.segment_speaker_combo.setEnabled(False)
+            self.reset_assignment_button.setEnabled(False)
+            self.save_assignment_button.setEnabled(False)
             self.segment_text_edit.setEnabled(False)
             self.reset_segment_button.setEnabled(False)
             self.save_segment_button.setEnabled(False)
@@ -219,6 +254,17 @@ class TranscriptReviewPage(QWidget):
             for item in self._snapshot.reviewed_transcript.segments
             if item.segment_id == segment_id
         )
+        self.segment_speaker_combo.blockSignals(True)
+        self.segment_speaker_combo.clear()
+        for speaker in self._snapshot.reviewed_transcript.speakers:
+            if speaker.source == segment.source:
+                self.segment_speaker_combo.addItem(speaker.display_name, speaker.speaker_id)
+        assignment_index = self.segment_speaker_combo.findData(segment.speaker_id)
+        self.segment_speaker_combo.setCurrentIndex(max(0, assignment_index))
+        self.segment_speaker_combo.blockSignals(False)
+        self.segment_speaker_combo.setEnabled(True)
+        self.reset_assignment_button.setEnabled(True)
+        self.save_assignment_button.setEnabled(True)
         self.segment_text_edit.setEnabled(True)
         self.reset_segment_button.setEnabled(True)
         self.save_segment_button.setEnabled(True)
@@ -235,6 +281,14 @@ class TranscriptReviewPage(QWidget):
         source = self._source_segments.get(segment_id or "")
         if source is not None:
             self.segment_text_edit.setPlainText(source.text)
+
+    def _reset_segment_speaker(self) -> None:
+        segment_id = self.selected_segment_id()
+        source = self._source_segments.get(segment_id or "")
+        if source is not None:
+            index = self.segment_speaker_combo.findData(source.speaker_id)
+            if index >= 0:
+                self.segment_speaker_combo.setCurrentIndex(index)
 
     def _emit_rename(self) -> None:
         session_id = self._session_id
@@ -255,6 +309,13 @@ class TranscriptReviewPage(QWidget):
                 segment_id,
                 self.segment_text_edit.toPlainText(),
             )
+
+    def _emit_assignment(self) -> None:
+        session_id = self._session_id
+        segment_id = self.selected_segment_id()
+        speaker_id = self.segment_speaker_combo.currentData()
+        if session_id is not None and segment_id is not None and isinstance(speaker_id, str):
+            self.assignment_requested.emit(session_id, segment_id, speaker_id)
 
     def _emit_open_notes(self) -> None:
         if self._session_id is not None:
@@ -281,3 +342,15 @@ def _timestamp(milliseconds: int) -> str:
     minutes, remainder = divmod(remainder, 60_000)
     seconds, _millis = divmod(remainder, 1_000)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _overlapping_segment_ids(segments: tuple[TranscriptSegment, ...]) -> set[str]:
+    overlapping: set[str] = set()
+    ordered = sorted(segments, key=lambda segment: (segment.start_ms, segment.end_ms))
+    for index, segment in enumerate(ordered):
+        for candidate in ordered[index + 1 :]:
+            if candidate.start_ms >= segment.end_ms:
+                break
+            if candidate.end_ms > segment.start_ms:
+                overlapping.update((segment.segment_id, candidate.segment_id))
+    return overlapping

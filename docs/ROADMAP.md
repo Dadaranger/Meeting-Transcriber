@@ -138,9 +138,10 @@ transcript review screen, source-label renaming, segment text correction, reset 
 model output, immutable review revisions, Markdown regeneration, optional pinned
 Community-1 diarization, stable anonymous remote clusters, exclusive-turn word
 assignment, safe fallback, cancellation/retry, runtime diagnostics, and
-permutation-invariant speaker-accuracy evaluation are implemented. Manual segment
-reassignment, diarization-confidence treatment, real-model fixtures, and overlap
-visual treatment remain planned.
+permutation-invariant speaker-accuracy evaluation are implemented. Source-safe manual
+segment reassignment, explicit overlap labels, and low-transcription-confidence cues
+are also implemented. Real-model fixtures and diarization-specific confidence remain
+planned release evidence.
 
 ## Milestone 6 — Structured export
 
@@ -163,8 +164,8 @@ visual treatment remain planned.
 
 **Current implementation status:** versioned JSON, deterministic baseline Markdown,
 retained rendered runs, automatic post-transcription export, and the History open
-action are implemented. Editable structured sections and preservation of reviewed
-user corrections remain planned.
+action are implemented. Reviewed transcript corrections are preserved during every
+re-export. Editable structured sections remain planned.
 
 ## Milestone 7 — Desktop release hardening
 

@@ -36,11 +36,22 @@ class SegmentTextCorrection:
             raise ValueError("Corrected segment text cannot be blank")
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class SegmentSpeakerCorrection:
+    segment_id: str
+    speaker_id: str
+
+    def __post_init__(self) -> None:
+        UUID(self.segment_id)
+        if not self.speaker_id.strip():
+            raise ValueError("Corrected segment speaker ID cannot be blank")
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptReview:
     """Sparse, versioned user corrections for exactly one transcript run."""
 
-    SCHEMA_VERSION: ClassVar[int] = 1
+    SCHEMA_VERSION: ClassVar[int] = 2
 
     session_id: str
     run_id: str
@@ -48,6 +59,7 @@ class TranscriptReview:
     updated_at: datetime
     speaker_names: tuple[SpeakerNameCorrection, ...] = ()
     segment_texts: tuple[SegmentTextCorrection, ...] = ()
+    segment_speakers: tuple[SegmentSpeakerCorrection, ...] = ()
 
     def __post_init__(self) -> None:
         UUID(self.session_id)
@@ -59,12 +71,17 @@ class TranscriptReview:
             raise ValueError("Speaker corrections must use deterministic ordering")
         if self.segment_texts != tuple(sorted(self.segment_texts)):
             raise ValueError("Segment corrections must use deterministic ordering")
+        if self.segment_speakers != tuple(sorted(self.segment_speakers)):
+            raise ValueError("Segment speaker corrections must use deterministic ordering")
         speaker_ids = [correction.speaker_id for correction in self.speaker_names]
         segment_ids = [correction.segment_id for correction in self.segment_texts]
+        assigned_segment_ids = [correction.segment_id for correction in self.segment_speakers]
         if len(speaker_ids) != len(set(speaker_ids)):
             raise ValueError("A review cannot correct one speaker more than once")
         if len(segment_ids) != len(set(segment_ids)):
             raise ValueError("A review cannot correct one segment more than once")
+        if len(assigned_segment_ids) != len(set(assigned_segment_ids)):
+            raise ValueError("A review cannot reassign one segment more than once")
 
     @classmethod
     def new(
@@ -86,14 +103,30 @@ class TranscriptReview:
             correction.speaker_id: correction.display_name for correction in self.speaker_names
         }
         texts = {correction.segment_id: correction.text for correction in self.segment_texts}
-        known_speakers = {speaker.speaker_id for speaker in transcript.speakers}
-        known_segments = {segment.segment_id for segment in transcript.segments}
+        assignments = {
+            correction.segment_id: correction.speaker_id for correction in self.segment_speakers
+        }
+        speakers = {speaker.speaker_id: speaker for speaker in transcript.speakers}
+        segments = {segment.segment_id: segment for segment in transcript.segments}
+        known_speakers = speakers.keys()
+        known_segments = segments.keys()
         unknown_speakers = names.keys() - known_speakers
-        unknown_segments = texts.keys() - known_segments
+        unknown_segments = (texts.keys() | assignments.keys()) - known_segments
+        unknown_assigned_speakers = set(assignments.values()) - known_speakers
         if unknown_speakers:
             raise ValueError(f"Review references unknown speaker {min(unknown_speakers)!r}")
         if unknown_segments:
             raise ValueError(f"Review references unknown segment {min(unknown_segments)!r}")
+        if unknown_assigned_speakers:
+            raise ValueError(
+                f"Review references unknown speaker {min(unknown_assigned_speakers)!r}"
+            )
+        for segment_id, speaker_id in assignments.items():
+            segment = segments[segment_id]
+            if speakers[segment.speaker_id].source != speakers[speaker_id].source:
+                raise ValueError(
+                    "A segment can only be assigned to a speaker from its audio source"
+                )
         return replace(
             transcript,
             speakers=tuple(
@@ -105,6 +138,7 @@ class TranscriptReview:
                     segment,
                     text=texts.get(segment.segment_id, segment.text),
                     words=() if segment.segment_id in texts else segment.words,
+                    speaker_id=assignments.get(segment.segment_id, segment.speaker_id),
                 )
                 for segment in transcript.segments
             ),
@@ -186,6 +220,54 @@ class TranscriptReview:
             revision=self.revision + 1,
             updated_at=_timestamp(at),
             segment_texts=updated,
+        )
+
+    def assign_segment(
+        self,
+        transcript: TranscriptDocument,
+        segment_id: str,
+        speaker_id: str,
+        *,
+        at: datetime | None = None,
+    ) -> TranscriptReview:
+        self._validate_transcript(transcript)
+        segment = next(
+            (candidate for candidate in transcript.segments if candidate.segment_id == segment_id),
+            None,
+        )
+        if segment is None:
+            raise ValueError(f"Unknown transcript segment {segment_id!r}")
+        source_speaker = next(
+            speaker for speaker in transcript.speakers if speaker.speaker_id == segment.speaker_id
+        )
+        target_speaker = next(
+            (speaker for speaker in transcript.speakers if speaker.speaker_id == speaker_id),
+            None,
+        )
+        if target_speaker is None:
+            raise ValueError(f"Unknown transcript speaker {speaker_id!r}")
+        if target_speaker.source != source_speaker.source:
+            raise ValueError("A segment can only be assigned to a speaker from its audio source")
+        assignments = {
+            correction.segment_id: correction.speaker_id for correction in self.segment_speakers
+        }
+        if speaker_id == segment.speaker_id:
+            assignments.pop(segment_id, None)
+        else:
+            assignments[segment_id] = speaker_id
+        updated = tuple(
+            sorted(
+                SegmentSpeakerCorrection(correction_id, assigned_speaker_id)
+                for correction_id, assigned_speaker_id in assignments.items()
+            )
+        )
+        if updated == self.segment_speakers:
+            return self
+        return replace(
+            self,
+            revision=self.revision + 1,
+            updated_at=_timestamp(at),
+            segment_speakers=updated,
         )
 
     def migrate_speaker_names(
