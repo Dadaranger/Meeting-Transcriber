@@ -6,7 +6,7 @@ evidence record, not a substitute for [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST
 
 ## Audited application checkpoint
 
-- Application commit: `5f007e8` (`codex/model-download-readiness`, PR
+- Application commit: `cc691af` (`codex/model-download-readiness`, PR
   [#17](https://github.com/Dadaranger/Meeting-Transcriber/pull/17))
 - Audit host: Windows 10 `10.0.19045`, Python 3.13.9
 - Audit date: 2026-08-11
@@ -17,16 +17,23 @@ evidence record, not a substitute for [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST
 | Requirement | Evidence | Result |
 | --- | --- | --- |
 | Repeatable locked checks | `scripts/release_readiness.ps1` ran the locked sync, formatting, lint, strict typing, full tests, failure gates, and frozen build | Pass |
-| Unit, integration, and UI behavior | 162 tests | Pass |
+| Unit, integration, and UI behavior | 163 tests | Pass |
 | Failure injection and synthetic one-hour audit | 29 selected tests from [`FAILURE_TEST_MATRIX.md`](FAILURE_TEST_MATRIX.md) | Pass |
-| Windows CI on Python 3.12 and 3.13 | GitHub Actions run [31567017037](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31567017037) | Pass |
+| Windows CI on Python 3.12 and 3.13 | GitHub Actions run [31570993085](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31570993085) | Pass |
 | Frozen desktop runtime | Local clean PyInstaller build and the extracted hosted portable `MeetingTranscriber.exe --package-smoke-test` | Pass; hosted process exit code 0 and version 0.1.0 |
-| Installer compilation, archive, checksums, provenance, and artifact upload | GitHub Actions run [31567017072](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31567017072) completed every required untagged step | Pass |
-| Hosted artifact identity | `meeting-transcriber-windows-31567017072`, 224,055,718-byte upload containing the installer, portable ZIP, and checksum manifest | Pass |
+| Installer compilation, archive, checksums, provenance, and artifact upload | GitHub Actions run [31570993081](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31570993081) completed every required untagged step | Pass |
+| Hosted artifact identity | `meeting-transcriber-windows-31570993081`, 224,082,871-byte upload containing the installer, portable ZIP, and checksum manifest | Pass |
 | Hosted artifact integrity | Downloaded both files; calculated SHA-256 values matched `SHA256SUMS.txt`; `gh attestation verify` succeeded for each file | Pass |
+| Current-host installer lifecycle | Installed the exact hosted artifact into an isolated directory, launched its packaged smoke test, and silently uninstalled it | Pass; install, smoke, and uninstall exit codes 0; installed version 0.1.0 |
+| Uninstall model-cache safety | Counted the two local model-cache roots before and after isolated uninstall | Pass; all 14 files remained and the isolated application directory was removed |
 | Real Windows device enumeration | `meeting-transcriber-audio-devices` found two WASAPI microphone inputs and one default 48 kHz WASAPI loopback endpoint without opening a stream | Pass for discovery only |
 | Explicit model acquisition | Real `small` snapshot acquisition reported persisted progress through 486,212,372 bytes, then the engine loaded with `local_files_only=True` | Pass |
 | Real offline transcription fixture | A fresh cache-only CPU/int8 engine transcribed [OpenAI Whisper's 10.36-second English JFK fixture](https://github.com/openai/whisper/blob/main/tests/jfk.flac) in 7.8 seconds | Pass for this single fixture |
+
+Hosted PR #17 artifact SHA-256 values:
+
+- Portable ZIP: `045c758d60f8f1919b0e63e5f0edc183afbaa96987849ca6d9925f2bf6ae30c2`
+- Installer: `4dab17150b74082ca1c5c61d3c459e453328fec26f2d44c76954bc9b89f24ffe`
 
 ## Real small-model qualification
 
@@ -66,14 +73,14 @@ Do not turn a row into “pass” based only on unit tests or a simulated device
 
 | Gate | Required evidence | Status |
 | --- | --- | --- |
-| Clean-machine installer | Install and launch the exact GitHub artifact on Windows 10 and Windows 11 x64 with no Python | Not run |
+| Clean-machine installer | Install and launch the exact GitHub artifact on Windows 10 and Windows 11 x64 with no Python | Current-host isolated lifecycle passed; clean Windows 10/11 machines not run |
 | Real meeting capture | Microphone and selected WASAPI loopback both produce audible finalized chunks; device loss is reported clearly | Device discovery passed; recording not run |
 | Long-session reliability | Real uninterrupted 60-minute dual-source meeting plus capture-audit output showing no gaps and no more than 250 ms drift | Not run |
 | Offline speech accuracy | Human-reviewed representative samples for each intended language/profile with evaluator JSON, timing, CPU, memory, and real-time factor | Partial: one clean English `small` fixture passed at WER 0.0 and RTF 0.753; representative meetings and other profiles/languages remain |
 | Cached/offline model behavior | Explicitly approve one model download, disconnect networking, then transcribe from the retained cache | Partial: explicit real download and a fresh `HF_HUB_OFFLINE=1` local-only engine passed; physical network-disconnect UI run remains |
 | Optional remote-speaker model | Accept the gated Community-1 terms, use a temporary token, verify local inference and retained fallback behavior | Not run |
 | Accessibility | Keyboard-only run, visible focus, screen-reader labels, 200% scaling, and Windows high-contrast evidence | Automated names/shortcuts pass; assistive-technology run not performed |
-| Uninstall data safety | Uninstall and prove application files are removed while meetings, transcripts, reviews, notes, and model caches remain | Not run |
+| Uninstall data safety | Uninstall and prove application files are removed while meetings, transcripts, reviews, notes, and model caches remain | Partial: isolated current-host uninstall removed the app and preserved all 14 model-cache files; no meeting-data root existed on this host |
 | Authenticode | Configure the certificate secrets and verify application/installer signatures and timestamp chains | Hosted application and installer confirmed `NotSigned`; secrets not configured |
 | Tagged release publication | After every external gate passes, push the annotated tag and verify the exact published release artifacts again | Waiting for external gates; no tag created |
 
