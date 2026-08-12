@@ -30,3 +30,15 @@ def test_installer_is_per_user_and_never_deletes_meeting_data() -> None:
     assert "[UninstallDelete]" not in installer
     assert not re.search(r"Documents.*delete|delete.*Documents", installer, re.IGNORECASE)
     assert "leaves recordings, transcripts, notes, reviews, and downloaded models" in information
+
+
+def test_workflow_artifact_name_is_safe_for_pull_request_refs() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/windows-package.yml").read_text(
+        encoding="utf-8"
+    )
+    upload_step = workflow.split("- name: Upload Windows artifacts", maxsplit=1)[1].split(
+        "- name:", maxsplit=1
+    )[0]
+
+    assert "name: meeting-transcriber-windows-${{ github.run_id }}" in upload_step
+    assert "github.ref_name" not in upload_step
