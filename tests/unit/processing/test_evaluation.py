@@ -33,10 +33,11 @@ def _segment(
     text: str,
     source: TranscriptSource,
     words: tuple[TranscriptWord, ...],
+    speaker_id: str | None = None,
 ) -> TranscriptSegment:
     start_ms = min(word.start_ms for word in words)
     end_ms = max(word.end_ms for word in words)
-    speaker_id = "local" if source is TranscriptSource.MICROPHONE else "remote"
+    speaker_id = speaker_id or ("local" if source is TranscriptSource.MICROPHONE else "remote")
     return TranscriptSegment(
         segment_id=segment_id,
         start_ms=start_ms,
@@ -49,6 +50,17 @@ def _segment(
 
 
 def _transcript(segments: tuple[TranscriptSegment, ...]) -> TranscriptDocument:
+    speakers = tuple(
+        TranscriptSpeaker(
+            speaker_id,
+            "You" if source is TranscriptSource.MICROPHONE else speaker_id,
+            source,
+        )
+        for speaker_id, source in sorted(
+            {(segment.speaker_id, segment.source) for segment in segments},
+            key=lambda item: item[0],
+        )
+    )
     return TranscriptDocument.new(
         SESSION_ID,
         run_id=RUN_ID,
@@ -57,10 +69,7 @@ def _transcript(segments: tuple[TranscriptSegment, ...]) -> TranscriptDocument:
         model="medium",
         profile=TranscriptionProfile.BALANCED,
         created_at=datetime(2026, 8, 12, tzinfo=UTC),
-        speakers=(
-            TranscriptSpeaker("local", "You", TranscriptSource.MICROPHONE),
-            TranscriptSpeaker("remote", "Remote", TranscriptSource.SYSTEM_AUDIO),
-        ),
+        speakers=speakers,
         segments=segments,
     )
 
@@ -169,6 +178,60 @@ def test_evaluation_detects_wrong_source_and_silence_hallucinations() -> None:
     assert silence_report.word_error_rate is None
     assert silence_report.hallucinated_tokens == 2
     assert silence_report.violations(AccuracyThresholds(max_hallucinated_tokens=0))
+
+
+def test_speaker_accuracy_uses_permutation_invariant_remote_labels() -> None:
+    transcript = _transcript(
+        (
+            _segment(
+                "975c69b5-aa1b-4a09-ab7f-31dfb23f49a9",
+                "alpha project",
+                TranscriptSource.SYSTEM_AUDIO,
+                (
+                    TranscriptWord("alpha", 0, 200),
+                    TranscriptWord("project", 250, 500),
+                ),
+                "remote-2",
+            ),
+            _segment(
+                "60cfdc08-f56d-430b-90a1-405866033750",
+                "beta budget",
+                TranscriptSource.SYSTEM_AUDIO,
+                (
+                    TranscriptWord("beta", 600, 800),
+                    TranscriptWord("budget", 850, 1_000),
+                ),
+                "remote-1",
+            ),
+        )
+    )
+    reference = AccuracyReference(
+        SESSION_ID,
+        "en",
+        (
+            AccuracyReferenceSegment(
+                0,
+                500,
+                TranscriptSource.SYSTEM_AUDIO,
+                "alpha project",
+                "alex",
+            ),
+            AccuracyReferenceSegment(
+                600,
+                1_000,
+                TranscriptSource.SYSTEM_AUDIO,
+                "beta budget",
+                "blair",
+            ),
+        ),
+    )
+
+    report = evaluate_accuracy(transcript, reference)
+
+    assert report.speaker_matches == 4
+    assert report.speaker_comparisons == 4
+    assert report.speaker_accuracy == 1.0
+    assert not report.violations(AccuracyThresholds(min_speaker_accuracy=1.0))
 
 
 def test_evaluation_cli_loads_artifacts_and_applies_thresholds(

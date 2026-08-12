@@ -54,6 +54,7 @@ from meeting_transcriber.infrastructure.paths import (
     default_meetings_directory,
     default_models_directory,
 )
+from meeting_transcriber.processing.runtime_diagnostics import inspect_diarization_runtime
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.session_store import SessionStore
@@ -332,10 +333,12 @@ class DiagnosticsPage(QWidget):
     def __init__(
         self,
         audio_backend: AudioDeviceDiscovery | None = None,
+        model_root: Path | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
+        self.model_root = model_root or default_models_directory()
         root = QVBoxLayout(self)
         root.setContentsMargins(38, 32, 38, 32)
         root.setSpacing(15)
@@ -370,6 +373,17 @@ class DiagnosticsPage(QWidget):
         self.refresh_audio_button.clicked.connect(self._refresh_audio_devices)
         audio_row.addWidget(self.refresh_audio_button)
         root.addLayout(audio_row)
+        diarization_row = QHBoxLayout()
+        self.diarization_card = DiagnosticCard(
+            "Remote-speaker runtime",
+            "Not checked - refresh to inspect local dependencies and model cache.",
+        )
+        diarization_row.addWidget(self.diarization_card, 1)
+        self.refresh_diarization_button = QPushButton("Refresh speaker runtime")
+        self.refresh_diarization_button.setAccessibleName("Refresh remote speaker runtime")
+        self.refresh_diarization_button.clicked.connect(self._refresh_diarization_runtime)
+        diarization_row.addWidget(self.refresh_diarization_button)
+        root.addLayout(diarization_row)
         root.addStretch()
 
     def _refresh_audio_devices(self) -> None:
@@ -382,6 +396,9 @@ class DiagnosticsPage(QWidget):
         microphones = ", ".join(device.name for device in catalog.microphones) or "None"
         loopbacks = ", ".join(device.name for device in catalog.loopbacks) or "None"
         self.audio_card.set_value(f"Microphones: {microphones}\nSystem loopbacks: {loopbacks}")
+
+    def _refresh_diarization_runtime(self) -> None:
+        self.diarization_card.set_value(inspect_diarization_runtime(self.model_root).summary)
 
 
 class MainWindow(QMainWindow):

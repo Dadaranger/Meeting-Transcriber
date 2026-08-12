@@ -167,6 +167,14 @@ that a channel always identifies a unique person.
 Every stage receives immutable inputs and writes a new artifact plus status. A
 failure in diarization must not invalidate a successful transcription.
 
+The optional diarization stage uses a revision-pinned local copy of pyannote
+Community-1 and its exclusive speaker turns. A completed-download marker prevents a
+partial model directory from being treated as a valid cache. Hugging Face access is
+needed only for the explicit gated download; the temporary token is passed in memory
+and is not part of the persisted transcription job. Pyannote metrics are disabled
+before its runtime is imported. Known setup and inference failures become a
+persisted nonfatal job warning and leave the source-aware transcript usable.
+
 ## Session storage
 
 ```text
@@ -184,12 +192,15 @@ Meetings/
       system_normalized.wav
       transcripts/
         <run-id>.json
+      diarization/
+        <run-id>.json
       meeting-notes/
         <run-id>.md
       reviews/
         <run-id>/
           revision-000001.json
     transcript.json
+    diarization.json
     transcript-review.json
     meeting-notes.md
     logs/

@@ -135,9 +135,12 @@ corrected by the user.
 
 **Current implementation status:** channel-aware local/remote attribution, the
 transcript review screen, source-label renaming, segment text correction, reset to
-model output, immutable review revisions, and Markdown regeneration are implemented.
-Optional remote-voice diarization, anonymous clusters, segment reassignment, and
-overlap treatment remain planned.
+model output, immutable review revisions, Markdown regeneration, optional pinned
+Community-1 diarization, stable anonymous remote clusters, exclusive-turn word
+assignment, safe fallback, cancellation/retry, runtime diagnostics, and
+permutation-invariant speaker-accuracy evaluation are implemented. Manual segment
+reassignment, diarization-confidence treatment, real-model fixtures, and overlap
+visual treatment remain planned.
 
 ## Milestone 6 — Structured export
 

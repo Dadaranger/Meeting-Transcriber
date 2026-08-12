@@ -303,6 +303,15 @@ def test_diagnostics_refreshes_audio_devices_explicitly(qtbot: QtBot, tmp_path: 
     assert "Test microphone" in value
     assert "Test speakers [Loopback]" in value
 
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.diagnostics_page.refresh_diarization_button,
+        Qt.MouseButton.LeftButton,
+    )
+    runtime = window.diagnostics_page.diarization_card.value_label.text()
+    assert "pyannote.audio:" in runtime
+    assert "Community-1 model:" in runtime
+    assert "PyTorch:" in runtime
+
 
 def test_consent_gated_ui_starts_and_stops_visible_recording(
     qtbot: QtBot,

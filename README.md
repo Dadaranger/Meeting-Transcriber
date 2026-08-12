@@ -64,21 +64,44 @@ the Markdown notes and creates a retained review revision without altering the
 original model transcript. When a meeting is transcribed again, stable speaker names
 carry forward but run-specific text corrections do not.
 
+Remote-speaker separation is now available as an optional second local stage. When
+enabled, the app assembles the system-audio chunks on the original meeting timeline,
+runs the pinned pyannote `speaker-diarization-community-1` pipeline, assigns words to
+anonymous `Remote Speaker 1`, `Remote Speaker 2`, ... clusters, and preserves
+microphone speech as `You`. The setup screen accepts automatic or bounded speaker
+counts and shows a separate progress state for this slower stage.
+
+The Community-1 model is gated. The first download requires accepting its
+[Hugging Face access conditions](https://huggingface.co/pyannote/speaker-diarization-community-1),
+explicitly allowing the download in the app, and entering a temporary read token.
+The token is used for that run and immediately cleared; it is never saved in a job,
+transcript, or settings file. Once the pinned model is cached, diarization loads it
+from disk. Audio is not uploaded. If the optional runtime or model is
+unavailable, transcription still completes with the original `Remote speakers`
+label and a visible warning.
+
 Automated checks exercise forced process termination, a simulated 60-minute
 dual-source journal, persisted transcription recovery, and deterministic accuracy
 metrics. A real 60-minute hardware soak and representative accuracy samples are
-still required before a release. Baseline Markdown export and durable transcript
-correction are implemented; remote voice diarization, segment reassignment, and
-editable summary/action sections remain active product milestones.
+still required before a release. Baseline Markdown export, durable transcript
+correction, and optional remote voice diarization are implemented; manual segment
+reassignment, overlap treatment, and editable summary/action sections remain active
+product milestones.
 
 ## Run the development application
 
 Install [uv](https://docs.astral.sh/uv/), then from the repository root run:
 
 ```powershell
-uv sync --extra dev --extra transcription
+uv sync --extra dev --extra transcription --extra diarization
 uv run meeting-transcriber
 ```
+
+Open **Diagnostics** and select **Refresh speaker runtime** to check the pyannote
+runtime, pinned model cache, PyTorch CPU/CUDA capability, and model folder. The app
+preloads its normalized PCM audio in memory, so diarization does not depend on an
+external FFmpeg installation. If remote-speaker separation is not needed, omit
+`--extra diarization`; the rest of the app remains usable.
 
 Python 3.12 or 3.13 is supported. The final Windows release will be distributed
 as an installer and will not require the user to install Python or run a terminal.
@@ -121,8 +144,8 @@ meeting.
 ## Measure offline transcription accuracy
 
 Compare `transcript.json` with a short human-reviewed reference to calculate word
-error rate, key-term recall, source attribution, timing error, and silence
-hallucinations:
+error rate, key-term recall, source attribution, permutation-invariant speaker
+attribution, timing error, and silence hallucinations:
 
 ```powershell
 uv run meeting-transcriber-evaluate transcript.json reference.json

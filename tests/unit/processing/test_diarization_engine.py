@@ -8,11 +8,13 @@ import pytest
 from meeting_transcriber.domain.transcript import TranscriptSource
 from meeting_transcriber.processing.diarization_engine import (
     PYANNOTE_REPOSITORY,
+    PYANNOTE_REVISION,
     DiarizationCancelled,
     DiarizationModelManager,
     DiarizationSetupError,
     PyannoteDiarizationEngine,
     RemoteAudioTimelineBuilder,
+    _load_waveform_input,
 )
 from meeting_transcriber.processing.preparation import PreparedAudioChunk, PreparedAudioPlan
 
@@ -86,10 +88,10 @@ def test_model_manager_requires_explicit_download_and_temporary_token(tmp_path: 
 
 
 def test_model_manager_downloads_gated_snapshot_to_local_directory(tmp_path: Path) -> None:
-    calls: list[tuple[str, Path, str]] = []
+    calls: list[tuple[str, Path, str, str]] = []
 
-    def download(repo_id: str, *, local_dir: Path, token: str) -> str:
-        calls.append((repo_id, local_dir, token))
+    def download(repo_id: str, *, local_dir: Path, token: str, revision: str) -> str:
+        calls.append((repo_id, local_dir, token, revision))
         local_dir.mkdir(parents=True, exist_ok=True)
         (local_dir / "config.yaml").write_text("pipeline: fixture", encoding="utf-8")
         return str(local_dir)
@@ -102,7 +104,17 @@ def test_model_manager_downloads_gated_snapshot_to_local_directory(tmp_path: Pat
     )
 
     assert manager.is_available
-    assert calls == [(PYANNOTE_REPOSITORY, model_directory, "temporary-token")]
+    assert calls == [(PYANNOTE_REPOSITORY, model_directory, "temporary-token", PYANNOTE_REVISION)]
+
+
+def test_incomplete_model_directory_is_never_treated_as_cached(tmp_path: Path) -> None:
+    manager = DiarizationModelManager(tmp_path)
+    manager.model_directory.mkdir()
+    (manager.model_directory / "config.yaml").write_text("pipeline: partial", encoding="utf-8")
+
+    assert not manager.is_available
+    with pytest.raises(DiarizationSetupError, match="not cached"):
+        manager.ensure_available(allow_download=False, access_token=None)
 
 
 class FakeSegment:
@@ -130,7 +142,7 @@ class FakeOutput:
 class FakePipeline:
     def __init__(self) -> None:
         self.device: object | None = None
-        self.calls: list[tuple[str, int | None, int | None]] = []
+        self.calls: list[tuple[object, int | None, int | None]] = []
 
     def to(self, device: object) -> object:
         self.device = device
@@ -138,12 +150,12 @@ class FakePipeline:
 
     def __call__(
         self,
-        audio_path: str,
+        audio: object,
         *,
         min_speakers: int | None = None,
         max_speakers: int | None = None,
     ) -> FakeOutput:
-        self.calls.append((audio_path, min_speakers, max_speakers))
+        self.calls.append((audio, min_speakers, max_speakers))
         return FakeOutput()
 
 
@@ -155,6 +167,7 @@ def test_pyannote_adapter_uses_exclusive_turns_and_stable_first_seen_labels(
         tmp_path / "model",
         pipeline_loader=lambda _path: pipeline,
         device_factory=lambda: "cpu",
+        waveform_loader=lambda path: {"waveform": path.name, "sample_rate": 16_000},
     )
 
     document = engine.diarize(
@@ -171,7 +184,22 @@ def test_pyannote_adapter_uses_exclusive_turns_and_stable_first_seen_labels(
         (600, 1_400, "remote-2"),
     ]
     assert pipeline.device == "cpu"
-    assert pipeline.calls == [(str(tmp_path / "remote.wav"), 2, 4)]
+    assert pipeline.calls == [({"waveform": "remote.wav", "sample_rate": 16_000}, 2, 4)]
+
+
+def test_waveform_input_preloads_normalized_pcm_without_audio_decoder(tmp_path: Path) -> None:
+    audio_path = tmp_path / "remote.wav"
+    _write_wav(audio_path, 3, 1_000)
+
+    result = _load_waveform_input(
+        audio_path,
+        tensor_factory=lambda pcm: bytes(pcm),
+    )
+
+    assert result == {
+        "waveform": (1_000).to_bytes(2, "little", signed=True) * 3,
+        "sample_rate": 16_000,
+    }
 
 
 def test_pyannote_adapter_honors_cancellation_before_loading(tmp_path: Path) -> None:

@@ -37,6 +37,7 @@ text and source labels in a JSON file:
       "start_ms": 1000,
       "end_ms": 4200,
       "source": "microphone",
+      "speaker_id": "you",
       "text": "Project Atlas uses WASAPI loopback."
     }
   ]
@@ -45,7 +46,9 @@ text and source labels in a JSON file:
 
 Use `microphone` for the computer user's mic and `system_audio` for people heard
 through the selected output device. An empty `segments` array represents a silence
-sample and detects hallucinated tokens.
+sample and detects hallucinated tokens. `speaker_id` is optional. For diarization
+evaluation, give every reviewed speaker a consistent ID such as `alex` or `blair`;
+it does not need to match the app's anonymous `remote-1` IDs.
 
 ## Run the evaluator
 
@@ -60,11 +63,15 @@ It reports:
 - word error rate (substitutions + deletions + insertions divided by reviewed words);
 - recall for supplied names and technical terms;
 - microphone versus system-audio attribution for correctly matched tokens;
+- speaker attribution for annotated, correctly matched tokens;
 - mean timestamp-boundary error for correctly matched tokens; and
 - tokens hallucinated in a silence sample.
 
 Punctuation and letter case do not count as errors. CJK ideographs and kana are
-tokenized individually so unspaced text remains measurable.
+tokenized individually so unspaced text remains measurable. Speaker accuracy finds
+the best one-to-one label mapping first, so swapping `Remote Speaker 1` and
+`Remote Speaker 2` does not count as an error; merging or fragmenting real speakers
+still does.
 
 Optional thresholds make the command suitable for repeatable comparison or CI:
 
@@ -73,6 +80,7 @@ uv run meeting-transcriber-evaluate transcript.json reference.json `
   --max-wer 0.18 `
   --min-key-term-recall 0.90 `
   --min-source-accuracy 0.95 `
+  --min-speaker-accuracy 0.85 `
   --max-mean-timing-error-ms 1000 `
   --max-hallucinated-tokens 0 `
   --json

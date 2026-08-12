@@ -4,9 +4,11 @@ import argparse
 import json
 import sys
 import unicodedata
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from functools import cache
 from pathlib import Path
 from typing import cast
 from uuid import UUID
@@ -25,12 +27,15 @@ class AccuracyReferenceSegment:
     end_ms: int
     source: TranscriptSource
     text: str
+    speaker_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.start_ms < 0 or self.end_ms <= self.start_ms:
             raise ValueError("Reference segment timestamps must have positive duration")
         if not self.text.strip():
             raise ValueError("Reference segment text cannot be blank")
+        if self.speaker_id is not None and not self.speaker_id.strip():
+            raise ValueError("Reference speaker ID cannot be blank")
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +87,7 @@ class AccuracyThresholds:
     max_word_error_rate: float | None = None
     min_key_term_recall: float | None = None
     min_source_accuracy: float | None = None
+    min_speaker_accuracy: float | None = None
     max_mean_timing_error_ms: float | None = None
     max_hallucinated_tokens: int | None = None
 
@@ -90,6 +96,7 @@ class AccuracyThresholds:
             ("max_word_error_rate", self.max_word_error_rate),
             ("min_key_term_recall", self.min_key_term_recall),
             ("min_source_accuracy", self.min_source_accuracy),
+            ("min_speaker_accuracy", self.min_speaker_accuracy),
         ):
             if value is not None and not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between zero and one")
@@ -119,6 +126,9 @@ class AccuracyReport:
     source_matches: int
     source_comparisons: int
     source_accuracy: float | None
+    speaker_matches: int
+    speaker_comparisons: int
+    speaker_accuracy: float | None
     timing_comparisons: int
     mean_timing_error_ms: float | None
 
@@ -149,6 +159,15 @@ class AccuracyReport:
             violations.append(
                 "source accuracy "
                 f"{self.source_accuracy:.3f} is below {thresholds.min_source_accuracy:.3f}"
+            )
+        if (
+            thresholds.min_speaker_accuracy is not None
+            and self.speaker_accuracy is not None
+            and self.speaker_accuracy < thresholds.min_speaker_accuracy
+        ):
+            violations.append(
+                "speaker accuracy "
+                f"{self.speaker_accuracy:.3f} is below {thresholds.min_speaker_accuracy:.3f}"
             )
         if (
             thresholds.max_mean_timing_error_ms is not None
@@ -190,6 +209,9 @@ class AccuracyReport:
             "source_matches": self.source_matches,
             "source_comparisons": self.source_comparisons,
             "source_accuracy": self.source_accuracy,
+            "speaker_matches": self.speaker_matches,
+            "speaker_comparisons": self.speaker_comparisons,
+            "speaker_accuracy": self.speaker_accuracy,
             "timing_comparisons": self.timing_comparisons,
             "mean_timing_error_ms": self.mean_timing_error_ms,
         }
@@ -201,6 +223,7 @@ class _TokenEvidence:
     source: TranscriptSource
     start_ms: int
     end_ms: int
+    speaker_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +304,7 @@ def evaluate_accuracy(
     source_matches = 0
     source_comparisons = 0
     timing_errors: list[float] = []
+    speaker_pairs: list[tuple[str, str]] = []
     matcher = SequenceMatcher(None, reference_tokens, hypothesis_tokens, autojunk=False)
     for block in matcher.get_matching_blocks():
         for offset in range(block.size):
@@ -292,6 +316,10 @@ def evaluate_accuracy(
                 (abs(expected.start_ms - actual.start_ms) + abs(expected.end_ms - actual.end_ms))
                 / 2
             )
+            if expected.speaker_id is not None:
+                speaker_pairs.append((expected.speaker_id, actual.speaker_id or "unassigned"))
+
+    speaker_matches = _maximum_speaker_matches(speaker_pairs)
 
     return AccuracyReport(
         session_id=transcript.session_id,
@@ -312,6 +340,9 @@ def evaluate_accuracy(
         source_matches=source_matches,
         source_comparisons=source_comparisons,
         source_accuracy=(source_matches / source_comparisons if source_comparisons else None),
+        speaker_matches=speaker_matches,
+        speaker_comparisons=len(speaker_pairs),
+        speaker_accuracy=(speaker_matches / len(speaker_pairs) if speaker_pairs else None),
         timing_comparisons=len(timing_errors),
         mean_timing_error_ms=(sum(timing_errors) / len(timing_errors) if timing_errors else None),
     )
@@ -319,7 +350,13 @@ def evaluate_accuracy(
 
 def _reference_evidence(reference: AccuracyReference) -> tuple[_TokenEvidence, ...]:
     return tuple(
-        _TokenEvidence(token, segment.source, segment.start_ms, segment.end_ms)
+        _TokenEvidence(
+            token,
+            segment.source,
+            segment.start_ms,
+            segment.end_ms,
+            segment.speaker_id,
+        )
         for segment in reference.segments
         for token in normalize_tokens(segment.text)
     )
@@ -330,16 +367,64 @@ def _transcript_evidence(transcript: TranscriptDocument) -> tuple[_TokenEvidence
     for segment in transcript.segments:
         if segment.words:
             evidence.extend(
-                _TokenEvidence(token, segment.source, segment.start_ms, segment.end_ms)
+                _TokenEvidence(
+                    token,
+                    segment.source,
+                    segment.start_ms,
+                    segment.end_ms,
+                    segment.speaker_id,
+                )
                 for word in segment.words
                 for token in normalize_tokens(word.text)
             )
         else:
             evidence.extend(
-                _TokenEvidence(token, segment.source, segment.start_ms, segment.end_ms)
+                _TokenEvidence(
+                    token,
+                    segment.source,
+                    segment.start_ms,
+                    segment.end_ms,
+                    segment.speaker_id,
+                )
                 for token in normalize_tokens(segment.text)
             )
     return tuple(evidence)
+
+
+def _maximum_speaker_matches(pairs: Sequence[tuple[str, str]]) -> int:
+    if not pairs:
+        return 0
+    counts = Counter(pairs)
+    reference_labels = sorted({reference for reference, _hypothesis in pairs})
+    hypothesis_labels = sorted({hypothesis for _reference, hypothesis in pairs})
+    if len(reference_labels) < len(hypothesis_labels):
+        rows = hypothesis_labels
+        columns = reference_labels
+        transposed = True
+    else:
+        rows = reference_labels
+        columns = hypothesis_labels
+        transposed = False
+
+    def score(row: str, column: str) -> int:
+        return counts[(column, row)] if transposed else counts[(row, column)]
+
+    @cache
+    def best(row_index: int, used_columns: int) -> int:
+        if row_index == len(rows):
+            return 0
+        result = best(row_index + 1, used_columns)
+        for column_index, column in enumerate(columns):
+            bit = 1 << column_index
+            if used_columns & bit:
+                continue
+            result = max(
+                result,
+                score(rows[row_index], column) + best(row_index + 1, used_columns | bit),
+            )
+        return result
+
+    return best(0, 0)
 
 
 def _edit_counts(reference: Sequence[str], hypothesis: Sequence[str]) -> _EditCounts:
@@ -417,6 +502,11 @@ def _reference_segment(value: object) -> AccuracyReferenceSegment:
         end_ms,
         TranscriptSource(_required_string(segment, "source")),
         _required_string(segment, "text"),
+        (
+            _required_string(segment, "speaker_id")
+            if segment.get("speaker_id") is not None
+            else None
+        ),
     )
 
 
@@ -437,6 +527,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-wer", type=float)
     parser.add_argument("--min-key-term-recall", type=float)
     parser.add_argument("--min-source-accuracy", type=float)
+    parser.add_argument("--min-speaker-accuracy", type=float)
     parser.add_argument("--max-mean-timing-error-ms", type=float)
     parser.add_argument("--max-hallucinated-tokens", type=int)
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
@@ -453,6 +544,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_word_error_rate=arguments.max_wer,
             min_key_term_recall=arguments.min_key_term_recall,
             min_source_accuracy=arguments.min_source_accuracy,
+            min_speaker_accuracy=arguments.min_speaker_accuracy,
             max_mean_timing_error_ms=arguments.max_mean_timing_error_ms,
             max_hallucinated_tokens=arguments.max_hallucinated_tokens,
         )
@@ -481,6 +573,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Source accuracy: "
             f"{_metric(report.source_accuracy, percent=True)} "
             f"({report.source_matches}/{report.source_comparisons})"
+        )
+        print(
+            "Speaker accuracy: "
+            f"{_metric(report.speaker_accuracy, percent=True)} "
+            f"({report.speaker_matches}/{report.speaker_comparisons})"
         )
         print(
             "Mean timing error: "

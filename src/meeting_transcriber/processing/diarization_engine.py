@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import wave
 from collections.abc import Callable, Iterable
@@ -19,7 +20,9 @@ from meeting_transcriber.processing.preparation import (
 )
 
 PYANNOTE_REPOSITORY = "pyannote/speaker-diarization-community-1"
+PYANNOTE_REVISION = "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee"
 PYANNOTE_MODEL_DIRECTORY = "pyannote-speaker-diarization-community-1"
+PYANNOTE_MODEL_MARKER = ".meeting-transcriber-model.json"
 
 
 class DiarizationRuntimeError(RuntimeError):
@@ -41,6 +44,7 @@ class _HubSnapshotDownloader(Protocol):
         *,
         local_dir: Path,
         token: str,
+        revision: str,
     ) -> str: ...
 
 
@@ -66,7 +70,7 @@ class _Pipeline(Protocol):
 
     def __call__(
         self,
-        audio_path: str,
+        audio: object,
         *,
         min_speakers: int | None = None,
         max_speakers: int | None = None,
@@ -77,18 +81,34 @@ class _PipelineClass(Protocol):
     def from_pretrained(self, model_path: str) -> _Pipeline | None: ...
 
 
+class _Tensor(Protocol):
+    def reshape(self, *shape: int) -> _Tensor: ...
+
+    def to(self, *, dtype: object) -> _Tensor: ...
+
+    def __truediv__(self, value: float) -> _Tensor: ...
+
+
+class _TorchModule(Protocol):
+    int16: object
+    float32: object
+
+    def frombuffer(self, buffer: bytearray, *, dtype: object) -> _Tensor: ...
+
+
 def _snapshot_download(
     repo_id: str,
     *,
     local_dir: Path,
     token: str,
+    revision: str,
 ) -> str:
     try:
         module = importlib.import_module("huggingface_hub")
         downloader = cast(_HubSnapshotDownloader, module.snapshot_download)
     except (ImportError, AttributeError) as error:
         raise DiarizationSetupError("The optional diarization runtime is not installed") from error
-    return downloader(repo_id, local_dir=local_dir, token=token)
+    return downloader(repo_id, local_dir=local_dir, token=token, revision=revision)
 
 
 @dataclass(slots=True)
@@ -105,7 +125,14 @@ class DiarizationModelManager:
         return self._has_complete_model()
 
     def _has_complete_model(self) -> bool:
-        return (self.model_directory / "config.yaml").is_file()
+        marker = self.model_directory / PYANNOTE_MODEL_MARKER
+        if not (self.model_directory / "config.yaml").is_file() or not marker.is_file():
+            return False
+        try:
+            document: object = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return document == {"repository": PYANNOTE_REPOSITORY, "revision": PYANNOTE_REVISION}
 
     def ensure_available(
         self,
@@ -130,14 +157,33 @@ class DiarizationModelManager:
                 PYANNOTE_REPOSITORY,
                 local_dir=self.model_directory,
                 token=token,
+                revision=PYANNOTE_REVISION,
             )
         except Exception as error:
             raise DiarizationSetupError(
                 "The remote-speaker model download failed. Confirm that its Hugging Face "
                 "access conditions were accepted and the token has read permission."
             ) from error
-        if not self._has_complete_model():
+        if not (self.model_directory / "config.yaml").is_file():
             raise DiarizationSetupError("The downloaded remote-speaker model is incomplete")
+        marker = self.model_directory / PYANNOTE_MODEL_MARKER
+        temporary_marker = marker.with_suffix(".tmp")
+        try:
+            temporary_marker.write_text(
+                json.dumps(
+                    {"repository": PYANNOTE_REPOSITORY, "revision": PYANNOTE_REVISION},
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            os.replace(temporary_marker, marker)
+        except OSError as error:
+            raise DiarizationSetupError(
+                "The downloaded remote-speaker model could not be finalized"
+            ) from error
+        finally:
+            temporary_marker.unlink(missing_ok=True)
         return self.model_directory
 
 
@@ -248,6 +294,36 @@ def _default_device() -> object:
         raise DiarizationSetupError("The optional PyTorch runtime is unavailable") from error
 
 
+def _torch_tensor(pcm: bytearray) -> _Tensor:
+    try:
+        module = cast(_TorchModule, importlib.import_module("torch"))
+        return (
+            module.frombuffer(pcm, dtype=module.int16).reshape(1, -1).to(dtype=module.float32)
+            / 32_768.0
+        )
+    except (ImportError, AttributeError, RuntimeError) as error:
+        raise DiarizationSetupError("The optional PyTorch runtime is unavailable") from error
+
+
+def _load_waveform_input(
+    audio_path: Path,
+    *,
+    tensor_factory: Callable[[bytearray], object] = _torch_tensor,
+) -> dict[str, object]:
+    try:
+        with wave.open(str(audio_path), "rb") as audio:
+            if (
+                audio.getframerate() != TARGET_SAMPLE_RATE
+                or audio.getnchannels() != TARGET_CHANNELS
+                or audio.getsampwidth() != TARGET_SAMPLE_WIDTH_BYTES
+            ):
+                raise DiarizationRuntimeError("Remote-speaker timeline has an invalid WAV format")
+            pcm = bytearray(audio.readframes(audio.getnframes()))
+    except (OSError, EOFError, wave.Error) as error:
+        raise DiarizationRuntimeError("Remote-speaker timeline could not be read") from error
+    return {"waveform": tensor_factory(pcm), "sample_rate": TARGET_SAMPLE_RATE}
+
+
 class PyannoteDiarizationEngine:
     engine_name = "pyannote.audio"
     model_name = "speaker-diarization-community-1"
@@ -258,10 +334,12 @@ class PyannoteDiarizationEngine:
         *,
         pipeline_loader: Callable[[Path], _Pipeline] = _default_pipeline_loader,
         device_factory: Callable[[], object] = _default_device,
+        waveform_loader: Callable[[Path], object] = _load_waveform_input,
     ):
         self.model_directory = model_directory
         self.pipeline_loader = pipeline_loader
         self.device_factory = device_factory
+        self.waveform_loader = waveform_loader
         self._pipeline: _Pipeline | None = None
 
     def diarize(
@@ -287,7 +365,7 @@ class PyannoteDiarizationEngine:
             output = cast(
                 _PipelineOutput,
                 pipeline(
-                    str(audio_path),
+                    self.waveform_loader(audio_path),
                     min_speakers=min_speakers,
                     max_speakers=max_speakers,
                 ),
