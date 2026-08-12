@@ -11,6 +11,7 @@ from meeting_transcriber.app.recording_service import (
     RecordingDeviceUnavailable,
     RecordingStartError,
     RecordingStopError,
+    RecordingWorkflowError,
 )
 from meeting_transcriber.app.session_service import MeetingSessionService
 from meeting_transcriber.capture.devices import (
@@ -88,6 +89,22 @@ class FakeCapture:
         self.paused = False
 
 
+class FakePreflight:
+    def __init__(self, on_audio_level: Callable[[AudioLevelSnapshot], None]):
+        self.on_audio_level = on_audio_level
+        self.started: bool = False
+        self.stopped: bool = False
+
+    def start(self) -> None:
+        self.started = True
+        self.on_audio_level(AudioLevelSnapshot(AudioDeviceKind.MICROPHONE, 0.4, 1))
+        self.on_audio_level(AudioLevelSnapshot(AudioDeviceKind.SYSTEM_LOOPBACK, 0.6, 1))
+
+    def stop(self, *, timeout_seconds: float = 2.0) -> None:
+        assert timeout_seconds == 2.0
+        self.stopped = True
+
+
 class FakeCaptureFactory:
     def __init__(
         self,
@@ -103,6 +120,8 @@ class FakeCaptureFactory:
         self.stop_state = stop_state
         self.calls: list[tuple[SourceCaptureConfig, SourceCaptureConfig]] = []
         self.capture: FakeCapture | None = None
+        self.preflight_calls: list[tuple[SourceCaptureConfig, SourceCaptureConfig]] = []
+        self.preflight: FakePreflight | None = None
 
     def __call__(
         self,
@@ -127,6 +146,21 @@ class FakeCaptureFactory:
             on_audio_level=on_audio_level,
         )
         return self.capture
+
+    def build_preflight(
+        self,
+        *,
+        configs: tuple[SourceCaptureConfig, SourceCaptureConfig],
+        stream_factory: AudioStreamFactory,
+        on_audio_level: Callable[[AudioLevelSnapshot], None],
+    ) -> FakePreflight:
+        del stream_factory
+        persisted = self.session_service.recent_sessions()[0]
+        assert persisted.state is SessionState.DRAFT
+        assert persisted.has_current_recording_consent
+        self.preflight_calls.append(configs)
+        self.preflight = FakePreflight(on_audio_level)
+        return self.preflight
 
 
 def _device(kind: AudioDeviceKind, device_id: str, channels: int) -> AudioDevice:
@@ -182,6 +216,7 @@ def _service(
         discovery,
         UnusedStreamFactory(),
         captures,
+        captures.build_preflight,
     )
     return service, sessions, discovery, captures
 
@@ -203,6 +238,55 @@ def test_missing_ui_acknowledgement_opens_nothing(tmp_path: Path) -> None:
     assert captures.calls == []
     assert persisted.state is SessionState.DRAFT
     assert persisted.consent_confirmed_at is None
+
+
+def test_missing_ui_acknowledgement_blocks_source_preflight(tmp_path: Path) -> None:
+    service, sessions, discovery, captures = _service(tmp_path)
+    draft = sessions.create_draft("Weekly sync")
+
+    with pytest.raises(RecordingConsentRequired, match="Confirm participant"):
+        service.start_preflight(
+            draft.session_id,
+            "mic",
+            "loopback",
+            consent_confirmed=False,
+        )
+
+    assert discovery.calls == 0
+    assert captures.preflight_calls == []
+    assert sessions.get_session(draft.session_id).consent_confirmed_at is None
+
+
+def test_preflight_persists_consent_reads_levels_and_writes_no_recording_state(
+    tmp_path: Path,
+) -> None:
+    service, sessions, discovery, captures = _service(tmp_path)
+    draft = sessions.create_draft("Weekly sync")
+
+    service.start_preflight(
+        draft.session_id,
+        "mic",
+        "loopback",
+        consent_confirmed=True,
+    )
+
+    persisted = sessions.get_session(draft.session_id)
+    assert discovery.calls == 1
+    assert persisted.state is SessionState.DRAFT
+    assert persisted.has_current_recording_consent
+    assert service.is_preflighting
+    assert service.latest_levels().microphone == 0.4
+    assert service.latest_levels().system_audio == 0.6
+    assert captures.preflight is not None and captures.preflight.started
+    assert list(sessions.session_directory(draft.session_id).glob("audio/*.wav")) == []
+
+    with pytest.raises(RecordingWorkflowError, match="Stop the audio source test"):
+        service.start(draft.session_id, "mic", "loopback", consent_confirmed=True)
+
+    service.stop_preflight()
+
+    assert captures.preflight.stopped
+    assert service.latest_levels().microphone == 0.0
 
 
 def test_start_persists_consent_before_capture_and_stop_records_session(tmp_path: Path) -> None:

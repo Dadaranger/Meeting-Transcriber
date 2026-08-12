@@ -21,6 +21,7 @@ from meeting_transcriber.capture.manifest import (
     CaptureJournalState,
     CaptureManifest,
 )
+from meeting_transcriber.capture.preflight import AudioSourcePreflight
 from meeting_transcriber.capture.recorder import DualSourceCapture
 from meeting_transcriber.capture.streams import AudioStreamFactory, SourceCaptureConfig
 from meeting_transcriber.domain.session import MeetingSession, SessionState
@@ -40,6 +41,10 @@ class RecordingDeviceUnavailable(RecordingWorkflowError):
 
 class RecordingStartError(RecordingWorkflowError):
     """Raised after a capture startup failure has been persisted as interrupted."""
+
+
+class RecordingPreflightError(RecordingWorkflowError):
+    """Raised when the consent-gated source test cannot start or stop cleanly."""
 
 
 class RecordingStopError(RecordingWorkflowError):
@@ -68,6 +73,22 @@ class CoordinatedCaptureFactory(Protocol):
     ) -> CoordinatedCapture: ...
 
 
+class SourcePreflight(Protocol):
+    def start(self) -> None: ...
+
+    def stop(self, *, timeout_seconds: float = 2.0) -> None: ...
+
+
+class SourcePreflightFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        configs: tuple[SourceCaptureConfig, SourceCaptureConfig],
+        stream_factory: AudioStreamFactory,
+        on_audio_level: Callable[[AudioLevelSnapshot], None],
+    ) -> SourcePreflight: ...
+
+
 @dataclass(frozen=True, slots=True)
 class RecordingLevels:
     microphone: float = 0.0
@@ -78,7 +99,21 @@ class RecordingWorkflow(Protocol):
     @property
     def is_recording(self) -> bool: ...
 
+    @property
+    def is_preflighting(self) -> bool: ...
+
     def discover_devices(self) -> AudioDeviceCatalog: ...
+
+    def start_preflight(
+        self,
+        session_id: str,
+        microphone_id: str,
+        loopback_id: str,
+        *,
+        consent_confirmed: bool,
+    ) -> None: ...
+
+    def stop_preflight(self) -> None: ...
 
     def start(
         self,
@@ -115,6 +150,15 @@ def build_dual_source_capture(
     )
 
 
+def build_source_preflight(
+    *,
+    configs: tuple[SourceCaptureConfig, SourceCaptureConfig],
+    stream_factory: AudioStreamFactory,
+    on_audio_level: Callable[[AudioLevelSnapshot], None],
+) -> AudioSourcePreflight:
+    return AudioSourcePreflight(configs, stream_factory, on_audio_level)
+
+
 @dataclass(frozen=True, slots=True)
 class RecordingStopResult:
     session: MeetingSession
@@ -136,12 +180,15 @@ class MeetingRecordingService:
         device_discovery: AudioDeviceDiscovery,
         stream_factory: AudioStreamFactory,
         capture_factory: CoordinatedCaptureFactory = build_dual_source_capture,
+        preflight_factory: SourcePreflightFactory = build_source_preflight,
     ):
         self.session_service = session_service
         self.device_discovery = device_discovery
         self.stream_factory = stream_factory
         self.capture_factory = capture_factory
+        self.preflight_factory = preflight_factory
         self._active: _ActiveRecording | None = None
+        self._active_preflight: SourcePreflight | None = None
         self._level_lock = Lock()
         self._latest_levels = RecordingLevels()
 
@@ -149,12 +196,62 @@ class MeetingRecordingService:
     def is_recording(self) -> bool:
         return self._active is not None
 
+    @property
+    def is_preflighting(self) -> bool:
+        return self._active_preflight is not None
+
     def discover_devices(self) -> AudioDeviceCatalog:
         return self.device_discovery.discover_devices()
 
     def latest_levels(self) -> RecordingLevels:
         with self._level_lock:
             return self._latest_levels
+
+    def start_preflight(
+        self,
+        session_id: str,
+        microphone_id: str,
+        loopback_id: str,
+        *,
+        consent_confirmed: bool,
+    ) -> None:
+        if self._active is not None:
+            raise RecordingWorkflowError("A meeting is already recording")
+        if self._active_preflight is not None:
+            raise RecordingWorkflowError("An audio source test is already running")
+        self._require_consent(consent_confirmed)
+        configs = self._selected_configs(microphone_id, loopback_id)
+
+        try:
+            self.session_service.confirm_recording_consent(session_id)
+        except (OSError, ValueError) as error:
+            raise RecordingWorkflowError("Meeting consent could not be persisted") from error
+
+        with self._level_lock:
+            self._latest_levels = RecordingLevels()
+        preflight = self.preflight_factory(
+            configs=configs,
+            stream_factory=self.stream_factory,
+            on_audio_level=self._record_audio_level,
+        )
+        try:
+            preflight.start()
+        except Exception as error:
+            raise RecordingPreflightError("Audio source test could not start") from error
+        self._active_preflight = preflight
+
+    def stop_preflight(self) -> None:
+        preflight = self._active_preflight
+        if preflight is None:
+            raise RecordingWorkflowError("No audio source test is running")
+        self._active_preflight = None
+        try:
+            preflight.stop()
+        except Exception as error:
+            raise RecordingPreflightError("Audio source test could not stop cleanly") from error
+        finally:
+            with self._level_lock:
+                self._latest_levels = RecordingLevels()
 
     def start(
         self,
@@ -166,29 +263,10 @@ class MeetingRecordingService:
     ) -> MeetingSession:
         if self._active is not None:
             raise RecordingWorkflowError("Another meeting is already recording")
-        if not consent_confirmed:
-            raise RecordingConsentRequired(
-                "Confirm participant notice and recording consent before recording"
-            )
-
-        try:
-            catalog = self.discover_devices()
-        except DeviceDiscoveryError as error:
-            raise RecordingDeviceUnavailable("Audio devices could not be refreshed") from error
-        microphone = self._select_device(
-            catalog.microphones,
-            microphone_id,
-            AudioDeviceKind.MICROPHONE,
-        )
-        loopback = self._select_device(
-            catalog.loopbacks,
-            loopback_id,
-            AudioDeviceKind.SYSTEM_LOOPBACK,
-        )
-        configs = (
-            self._config_for(microphone, maximum_channels=1),
-            self._config_for(loopback, maximum_channels=2),
-        )
+        if self._active_preflight is not None:
+            raise RecordingWorkflowError("Stop the audio source test before recording")
+        self._require_consent(consent_confirmed)
+        configs = self._selected_configs(microphone_id, loopback_id)
 
         try:
             self.session_service.confirm_recording_consent(session_id)
@@ -242,6 +320,37 @@ class MeetingRecordingService:
                 "Audio capture stopped, but the meeting state could not be persisted"
             ) from error
         return RecordingStopResult(session, manifest)
+
+    @staticmethod
+    def _require_consent(consent_confirmed: bool) -> None:
+        if not consent_confirmed:
+            raise RecordingConsentRequired(
+                "Confirm participant notice and recording consent before opening audio sources"
+            )
+
+    def _selected_configs(
+        self,
+        microphone_id: str,
+        loopback_id: str,
+    ) -> tuple[SourceCaptureConfig, SourceCaptureConfig]:
+        try:
+            catalog = self.discover_devices()
+        except DeviceDiscoveryError as error:
+            raise RecordingDeviceUnavailable("Audio devices could not be refreshed") from error
+        microphone = self._select_device(
+            catalog.microphones,
+            microphone_id,
+            AudioDeviceKind.MICROPHONE,
+        )
+        loopback = self._select_device(
+            catalog.loopbacks,
+            loopback_id,
+            AudioDeviceKind.SYSTEM_LOOPBACK,
+        )
+        return (
+            self._config_for(microphone, maximum_channels=1),
+            self._config_for(loopback, maximum_channels=2),
+        )
 
     def pause(self) -> MeetingSession:
         active = self._active

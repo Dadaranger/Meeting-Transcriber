@@ -408,6 +408,8 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.history_page)
         self.recording_page = RecordingPage()
         self.recording_page.begin_requested.connect(self._begin_recording)
+        self.recording_page.preflight_requested.connect(self._begin_preflight)
+        self.recording_page.preflight_stop_requested.connect(self._stop_preflight)
         self.recording_page.pause_requested.connect(self._pause_recording)
         self.recording_page.resume_requested.connect(self._resume_recording)
         self.recording_page.stop_requested.connect(self._stop_recording)
@@ -434,6 +436,10 @@ class MainWindow(QMainWindow):
         self.level_timer = QTimer(self)
         self.level_timer.setInterval(100)
         self.level_timer.timeout.connect(self._refresh_levels)
+        self.preflight_timeout = QTimer(self)
+        self.preflight_timeout.setSingleShot(True)
+        self.preflight_timeout.setInterval(5_000)
+        self.preflight_timeout.timeout.connect(self._stop_preflight)
 
     def _create_draft(self) -> None:
         title, accepted = QInputDialog.getText(
@@ -481,6 +487,47 @@ class MainWindow(QMainWindow):
         self.global_recording_indicator.show()
         self._set_navigation_enabled(False)
         self.statusBar().showMessage(f"Recording - {session.title}")
+
+    def _begin_preflight(
+        self,
+        session_id: str,
+        microphone_id: str,
+        loopback_id: str,
+    ) -> None:
+        try:
+            self.recording_service.start_preflight(
+                session_id,
+                microphone_id,
+                loopback_id,
+                consent_confirmed=self.recording_page.consent_checkbox.isChecked(),
+            )
+        except RecordingWorkflowError as error:
+            self.statusBar().showMessage(f"Source test did not start - {error}")
+            QMessageBox.warning(self, "Audio source test could not start", str(error))
+            return
+
+        self.recording_page.show_preflight(True)
+        self._refresh_levels()
+        self.level_timer.start()
+        self.preflight_timeout.start()
+        self.statusBar().showMessage(
+            "Testing microphone and system audio for five seconds - no audio is saved"
+        )
+
+    def _stop_preflight(self) -> None:
+        if not self.recording_service.is_preflighting:
+            return
+        try:
+            self.recording_service.stop_preflight()
+        except RecordingWorkflowError as error:
+            self.statusBar().showMessage(f"Source test ended with an error - {error}")
+            QMessageBox.warning(self, "Audio source test ended", str(error))
+        else:
+            self.statusBar().showMessage("Source test complete - no audio was saved", 8_000)
+        finally:
+            self.preflight_timeout.stop()
+            self.level_timer.stop()
+            self.recording_page.show_preflight(False)
 
     def _pause_recording(self) -> None:
         try:
@@ -599,6 +646,8 @@ class MainWindow(QMainWindow):
         self.recording_page.update_levels(levels.microphone, levels.system_audio)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.recording_service.is_preflighting:
+            self._stop_preflight()
         if not self.recording_service.is_recording:
             super().closeEvent(event)
             return

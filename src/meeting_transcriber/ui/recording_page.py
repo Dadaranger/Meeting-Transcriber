@@ -31,6 +31,8 @@ class RecordingPage(QWidget):
     """Review capture sources and require an explicit consent acknowledgement."""
 
     begin_requested = Signal(str, str, str)
+    preflight_requested = Signal(str, str, str)
+    preflight_stop_requested = Signal()
     back_requested = Signal()
     pause_requested = Signal()
     resume_requested = Signal()
@@ -39,6 +41,7 @@ class RecordingPage(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._session_id: str | None = None
+        self._preflight_active = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(38, 32, 38, 32)
@@ -47,8 +50,8 @@ class RecordingPage(QWidget):
         root.addWidget(_label("Review before recording", "pageTitle"))
         root.addWidget(
             _label(
-                "No audio stream is opened on this screen. Confirm the meeting, devices, "
-                "and participant notice before recording begins.",
+                "Confirm the meeting, devices, and participant notice before testing sources "
+                "or recording. The source test never saves audio.",
                 "muted",
                 wrap=True,
             )
@@ -95,10 +98,36 @@ class RecordingPage(QWidget):
             )
         )
 
+        self.preflight_status_label = _label(
+            "Optional: test both source levels for five seconds before recording.",
+            "muted",
+            wrap=True,
+        )
+        card_layout.addWidget(self.preflight_status_label)
+        self.preflight_microphone_level = QProgressBar()
+        self.preflight_microphone_level.setRange(0, 100)
+        self.preflight_microphone_level.setValue(0)
+        self.preflight_microphone_level.setTextVisible(False)
+        self.preflight_microphone_level.setAccessibleName("Source test microphone level")
+        card_layout.addWidget(self.preflight_microphone_level)
+        self.preflight_system_level = QProgressBar()
+        self.preflight_system_level.setRange(0, 100)
+        self.preflight_system_level.setValue(0)
+        self.preflight_system_level.setTextVisible(False)
+        self.preflight_system_level.setAccessibleName("Source test system audio level")
+        card_layout.addWidget(self.preflight_system_level)
+
         actions = QHBoxLayout()
         self.back_button = QPushButton("Back")
         self.back_button.clicked.connect(self.back_requested.emit)
         actions.addWidget(self.back_button)
+        self.preflight_button = QPushButton("Test sources (5 seconds)")
+        self.preflight_button.setAccessibleName(
+            "Test selected audio sources after consent confirmation"
+        )
+        self.preflight_button.setEnabled(False)
+        self.preflight_button.clicked.connect(self._emit_preflight_toggle)
+        actions.addWidget(self.preflight_button)
         actions.addStretch()
         self.begin_button = QPushButton("Begin recording")
         self.begin_button.setObjectName("primaryButton")
@@ -182,11 +211,13 @@ class RecordingPage(QWidget):
         self._recording_started_monotonic = None
         self._pause_started_monotonic = None
         self._paused_duration_seconds = 0.0
+        self._preflight_active = False
         self.recording_card.hide()
         self.setup_card.show()
         self._session_id = session.session_id
         self.meeting_title_label.setText(session.title)
         self.consent_checkbox.setChecked(False)
+        self.show_preflight(False)
         self._populate_devices(self.microphone_combo, catalog.microphones)
         self._populate_devices(self.loopback_combo, catalog.loopbacks)
 
@@ -229,8 +260,28 @@ class RecordingPage(QWidget):
         self.recording_card.hide()
 
     def update_levels(self, microphone: float, system_audio: float) -> None:
-        self.microphone_level.setValue(round(max(0.0, min(1.0, microphone)) * 100))
-        self.system_audio_level.setValue(round(max(0.0, min(1.0, system_audio)) * 100))
+        microphone_percent = round(max(0.0, min(1.0, microphone)) * 100)
+        system_percent = round(max(0.0, min(1.0, system_audio)) * 100)
+        self.microphone_level.setValue(microphone_percent)
+        self.system_audio_level.setValue(system_percent)
+        self.preflight_microphone_level.setValue(microphone_percent)
+        self.preflight_system_level.setValue(system_percent)
+
+    def show_preflight(self, active: bool) -> None:
+        self._preflight_active = active
+        self.preflight_button.setText("Stop source test" if active else "Test sources (5 seconds)")
+        self.preflight_status_label.setText(
+            "Testing now — speak into the microphone and play meeting audio. Nothing is saved."
+            if active
+            else "Optional: test both source levels for five seconds before recording."
+        )
+        self.microphone_combo.setEnabled(not active)
+        self.loopback_combo.setEnabled(not active)
+        self.consent_checkbox.setEnabled(not active)
+        self.back_button.setEnabled(not active)
+        if not active:
+            self.update_levels(0.0, 0.0)
+        self._update_begin_enabled()
 
     def show_paused(self) -> None:
         if self._pause_started_monotonic is None:
@@ -276,14 +327,32 @@ class RecordingPage(QWidget):
     def _update_begin_enabled(self, *_args: object) -> None:
         has_microphone = isinstance(self.microphone_combo.currentData(), str)
         has_loopback = isinstance(self.loopback_combo.currentData(), str)
-        self.begin_button.setEnabled(
+        ready = (
             self._session_id is not None
             and has_microphone
             and has_loopback
             and self.consent_checkbox.isChecked()
         )
+        self.begin_button.setEnabled(ready and not self._preflight_active)
+        self.preflight_button.setEnabled(ready or self._preflight_active)
 
     def _emit_begin_requested(self) -> None:
+        microphone_id = self.microphone_combo.currentData()
+        loopback_id = self.loopback_combo.currentData()
+        if (
+            self._session_id is None
+            or self._preflight_active
+            or not isinstance(microphone_id, str)
+            or not isinstance(loopback_id, str)
+            or not self.consent_checkbox.isChecked()
+        ):
+            return
+        self.begin_requested.emit(self._session_id, microphone_id, loopback_id)
+
+    def _emit_preflight_toggle(self) -> None:
+        if self._preflight_active:
+            self.preflight_stop_requested.emit()
+            return
         microphone_id = self.microphone_combo.currentData()
         loopback_id = self.loopback_combo.currentData()
         if (
@@ -293,7 +362,7 @@ class RecordingPage(QWidget):
             or not self.consent_checkbox.isChecked()
         ):
             return
-        self.begin_requested.emit(self._session_id, microphone_id, loopback_id)
+        self.preflight_requested.emit(self._session_id, microphone_id, loopback_id)
 
     def _emit_pause_toggle(self) -> None:
         if self._pause_started_monotonic is None:

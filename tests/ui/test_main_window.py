@@ -48,14 +48,37 @@ class FakeRecordingWorkflow:
         self.sessions = sessions
         self.discovery = FakeAudioDiscovery()
         self.start_calls: list[tuple[str, str, str, bool]] = []
-        self._recording = False
+        self.preflight_calls: list[tuple[str, str, str, bool]] = []
+        self._recording: bool = False
+        self._preflighting: bool = False
 
     @property
     def is_recording(self) -> bool:
         return self._recording
 
+    @property
+    def is_preflighting(self) -> bool:
+        return self._preflighting
+
     def discover_devices(self) -> AudioDeviceCatalog:
         return self.discovery.discover_devices()
+
+    def start_preflight(
+        self,
+        session_id: str,
+        microphone_id: str,
+        loopback_id: str,
+        *,
+        consent_confirmed: bool,
+    ) -> None:
+        self.preflight_calls.append((session_id, microphone_id, loopback_id, consent_confirmed))
+        assert consent_confirmed
+        self.sessions.confirm_recording_consent(session_id)
+        self._preflighting = True
+
+    def stop_preflight(self) -> None:
+        assert self._preflighting
+        self._preflighting = False
 
     def start(
         self,
@@ -236,6 +259,51 @@ def test_consent_gated_ui_starts_and_stops_visible_recording(
     assert window.global_recording_indicator.isHidden()
     assert window.home_button.isEnabled()
     assert window.pages.currentWidget() is window.home_page
+
+
+def test_consent_gated_source_test_is_timed_and_writes_no_recording_state(
+    qtbot: QtBot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = MeetingSessionService(SessionStore(tmp_path))
+    workflow = FakeRecordingWorkflow(service)
+    window = MainWindow(service, FakeAudioDiscovery(), workflow)
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        QInputDialog,
+        "getText",
+        lambda *args, **kwargs: ("Source test", True),
+    )
+
+    qtbot.mouseClick(window.home_page.start_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.recording_page.consent_checkbox,
+        Qt.MouseButton.LeftButton,
+    )
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.recording_page.preflight_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    draft = service.recent_sessions()[0]
+    assert workflow.preflight_calls == [(draft.session_id, "microphone", "loopback", True)]
+    assert draft.state is SessionState.DRAFT
+    assert service.get_session(draft.session_id).has_current_recording_consent
+    assert workflow.is_preflighting
+    assert window.preflight_timeout.isActive()
+    assert window.recording_page.preflight_microphone_level.value() == 20
+    assert window.recording_page.preflight_system_level.value() == 80
+    assert not window.recording_page.begin_button.isEnabled()
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.recording_page.preflight_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert not window.preflight_timeout.isActive()
+    assert window.recording_page.begin_button.isEnabled()
+    assert window.recording_page.preflight_microphone_level.value() == 0
 
 
 def test_history_recovers_audio_and_opens_session_folder(

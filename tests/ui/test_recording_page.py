@@ -59,6 +59,7 @@ def test_consent_is_a_hard_gate_for_begin_recording(qtbot: QtBot) -> None:
     page.load_session(session, _catalog())
 
     assert not page.begin_button.isEnabled()
+    assert not page.preflight_button.isEnabled()
     assert page.consent_checkbox.text() == CONSENT_STATEMENT
     assert page.microphone_combo.currentData() == "mic-2"
     assert page.loopback_combo.currentData() == "loopback-1"
@@ -66,6 +67,21 @@ def test_consent_is_a_hard_gate_for_begin_recording(qtbot: QtBot) -> None:
     qtbot.mouseClick(page.consent_checkbox, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
     assert page.begin_button.isEnabled()
+    assert page.preflight_button.isEnabled()
+    with qtbot.waitSignal(page.preflight_requested) as preflight_signal:
+        qtbot.mouseClick(page.preflight_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    assert preflight_signal.args == [session.session_id, "mic-2", "loopback-1"]
+
+    page.show_preflight(True)
+    page.update_levels(0.35, 0.7)
+    assert not page.begin_button.isEnabled()
+    assert page.preflight_microphone_level.value() == 35
+    assert page.preflight_system_level.value() == 70
+    with qtbot.waitSignal(page.preflight_stop_requested):
+        qtbot.mouseClick(page.preflight_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    page.show_preflight(False)
+    assert page.begin_button.isEnabled()
+
     with qtbot.waitSignal(page.begin_requested) as signal:
         qtbot.mouseClick(page.begin_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
