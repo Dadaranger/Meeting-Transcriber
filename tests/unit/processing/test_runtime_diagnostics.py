@@ -9,7 +9,21 @@ from meeting_transcriber.processing.diarization_engine import (
     PYANNOTE_REPOSITORY,
     PYANNOTE_REVISION,
 )
-from meeting_transcriber.processing.runtime_diagnostics import inspect_diarization_runtime
+from meeting_transcriber.processing.runtime_diagnostics import (
+    inspect_diarization_runtime,
+    inspect_transcription_runtime,
+)
+
+
+def test_transcription_diagnostics_report_runtime_and_cached_models(tmp_path: Path) -> None:
+    (tmp_path / "models--Systran--faster-whisper-medium").mkdir()
+    (tmp_path / "unrelated-model").mkdir()
+
+    status = inspect_transcription_runtime(tmp_path)
+
+    assert status.cached_models == ("Systran/faster-whisper-medium",)
+    assert "faster-whisper:" in status.summary
+    assert "Cached speech models: Systran/faster-whisper-medium" in status.summary
 
 
 def test_diarization_diagnostics_report_a_complete_pinned_model(

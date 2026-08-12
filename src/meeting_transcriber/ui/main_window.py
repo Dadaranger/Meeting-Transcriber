@@ -7,7 +7,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal, qVersion
-from PySide6.QtGui import QCloseEvent, QDesktopServices, QFont
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -33,7 +33,7 @@ from meeting_transcriber.app.session_service import (
     MeetingSessionService,
     SessionRecoveryError,
 )
-from meeting_transcriber.app.storage_health import StorageHealth
+from meeting_transcriber.app.storage_health import DiskSpaceChecker, StorageHealth
 from meeting_transcriber.app.transcription_service import (
     MeetingTranscriptionService,
     TranscriptionWorkflow,
@@ -51,10 +51,15 @@ from meeting_transcriber.capture.windows_pyaudio import (
 from meeting_transcriber.domain.session import SessionState
 from meeting_transcriber.domain.transcript import TranscriptionJobState, TranscriptionProfile
 from meeting_transcriber.infrastructure.paths import (
+    default_first_run_state_file,
     default_meetings_directory,
     default_models_directory,
 )
-from meeting_transcriber.processing.runtime_diagnostics import inspect_diarization_runtime
+from meeting_transcriber.processing.runtime_diagnostics import (
+    inspect_diarization_runtime,
+    inspect_transcription_runtime,
+)
+from meeting_transcriber.storage.first_run_store import FirstRunStore
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.session_store import SessionStore
@@ -201,6 +206,10 @@ QListWidget::item:selected {
     background-color: #173c42;
     color: #9af8e9;
 }
+QPushButton:focus, QComboBox:focus, QLineEdit:focus, QPlainTextEdit:focus,
+QListWidget:focus, QCheckBox:focus, QSpinBox:focus {
+    border: 2px solid #facc15;
+}
 QStatusBar {
     background-color: #101827;
     color: #8fa0b8;
@@ -330,15 +339,19 @@ class DiagnosticCard(QFrame):
 
 
 class DiagnosticsPage(QWidget):
+    setup_completed = Signal()
+
     def __init__(
         self,
         audio_backend: AudioDeviceDiscovery | None = None,
         model_root: Path | None = None,
+        meeting_root: Path | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
         self.model_root = model_root or default_models_directory()
+        self.meeting_root = meeting_root or default_meetings_directory()
         root = QVBoxLayout(self)
         root.setContentsMargins(38, 32, 38, 32)
         root.setSpacing(15)
@@ -347,7 +360,7 @@ class DiagnosticsPage(QWidget):
         root.addWidget(_label("Runtime information", "pageTitle"))
         root.addWidget(
             _label(
-                "These details will support hardware checks, model selection, and support bundles.",
+                "Check local readiness without recording audio or downloading a model.",
                 "muted",
                 wrap=True,
             )
@@ -362,6 +375,16 @@ class DiagnosticsPage(QWidget):
                 str(default_meetings_directory()),
             )
         )
+        self.storage_card = DiagnosticCard(
+            "Meeting storage",
+            "Not checked - run readiness checks to inspect available space.",
+        )
+        root.addWidget(self.storage_card)
+        self.transcription_card = DiagnosticCard(
+            "Offline transcription runtime",
+            "Not checked - run readiness checks to inspect local dependencies and model cache.",
+        )
+        root.addWidget(self.transcription_card)
         audio_row = QHBoxLayout()
         self.audio_card = DiagnosticCard(
             "Windows capture devices",
@@ -385,6 +408,35 @@ class DiagnosticsPage(QWidget):
         diarization_row.addWidget(self.refresh_diarization_button)
         root.addLayout(diarization_row)
         root.addStretch()
+        actions = QHBoxLayout()
+        self.run_all_button = QPushButton("Run all readiness checks")
+        self.run_all_button.setAccessibleName("Run all first-run readiness checks")
+        self.run_all_button.clicked.connect(self.run_all_checks)
+        actions.addWidget(self.run_all_button)
+        actions.addStretch()
+        self.finish_setup_button = QPushButton("Finish setup and go home")
+        self.finish_setup_button.setObjectName("primaryButton")
+        self.finish_setup_button.setAccessibleName("Complete first-run setup")
+        self.finish_setup_button.clicked.connect(self.setup_completed.emit)
+        actions.addWidget(self.finish_setup_button)
+        root.addLayout(actions)
+
+    def run_all_checks(self) -> None:
+        self._refresh_storage()
+        self._refresh_transcription_runtime()
+        self._refresh_audio_devices()
+        self._refresh_diarization_runtime()
+
+    def _refresh_storage(self) -> None:
+        try:
+            status = DiskSpaceChecker(self.meeting_root).check()
+        except OSError as error:
+            self.storage_card.set_value(f"Storage check failed: {error}")
+            return
+        self.storage_card.set_value(f"{status.display_text}\nMeeting folder: {self.meeting_root}")
+
+    def _refresh_transcription_runtime(self) -> None:
+        self.transcription_card.set_value(inspect_transcription_runtime(self.model_root).summary)
 
     def _refresh_audio_devices(self) -> None:
         try:
@@ -409,12 +461,17 @@ class MainWindow(QMainWindow):
         recording_service: RecordingWorkflow | None = None,
         folder_opener: Callable[[Path], bool] | None = None,
         transcription_service: TranscriptionWorkflow | None = None,
+        first_run_store: FirstRunStore | None = None,
     ):
         super().__init__()
+        uses_default_storage = session_service is None
         self.session_service = session_service or MeetingSessionService(
             SessionStore(default_meetings_directory())
         )
         self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
+        self.first_run_store = first_run_store or (
+            FirstRunStore(default_first_run_state_file()) if uses_default_storage else None
+        )
         self.folder_opener = folder_opener or open_local_folder
         self.notes_store = MeetingNotesStore(self.session_service.store.root)
         self.transcript_store = TranscriptStore(self.session_service.store.root)
@@ -482,7 +539,11 @@ class MainWindow(QMainWindow):
         self.review_page.open_notes_requested.connect(self._open_meeting_notes)
         self.review_page.back_requested.connect(self._show_history)
         self.pages.addWidget(self.review_page)
-        self.diagnostics_page = DiagnosticsPage(self.audio_backend)
+        self.diagnostics_page = DiagnosticsPage(
+            self.audio_backend,
+            meeting_root=self.session_service.store.root,
+        )
+        self.diagnostics_page.setup_completed.connect(self._complete_first_run_setup)
         self.pages.addWidget(self.diagnostics_page)
 
         shell_layout.addWidget(sidebar)
@@ -501,6 +562,7 @@ class MainWindow(QMainWindow):
         self.global_recording_indicator.hide()
         status.addPermanentWidget(self.global_recording_indicator)
         self.setStatusBar(status)
+        status.setAccessibleName("Application status")
         self.level_timer = QTimer(self)
         self.level_timer.setInterval(100)
         self.level_timer.timeout.connect(self._refresh_levels)
@@ -515,6 +577,29 @@ class MainWindow(QMainWindow):
         self.transcription_timer = QTimer(self)
         self.transcription_timer.setInterval(250)
         self.transcription_timer.timeout.connect(self._poll_transcription)
+        self.new_meeting_shortcut = QShortcut(QKeySequence("Ctrl+N"), self)
+        self.new_meeting_shortcut.activated.connect(self._create_draft)
+        self._ensure_control_accessible_names()
+        if self.first_run_store is not None and not self.first_run_store.is_complete():
+            self._show_diagnostics(run_checks=True)
+            self.statusBar().showMessage(
+                "First-run setup - review local readiness, then finish setup"
+            )
+
+    def _complete_first_run_setup(self) -> None:
+        if self.first_run_store is not None:
+            try:
+                self.first_run_store.mark_complete()
+            except OSError as error:
+                QMessageBox.warning(self, "Setup state could not be saved", str(error))
+                return
+        self._show_home()
+        self.statusBar().showMessage("First-run setup complete - ready for a meeting", 8_000)
+
+    def _ensure_control_accessible_names(self) -> None:
+        for button in self.findChildren(QPushButton):
+            if not button.accessibleName():
+                button.setAccessibleName(button.text().replace("&", ""))
 
     def _create_draft(self) -> None:
         title, accepted = QInputDialog.getText(
@@ -680,6 +765,15 @@ class MainWindow(QMainWindow):
         self._refresh_history()
         self.pages.setCurrentWidget(self.history_page)
         self.history_button.setChecked(True)
+
+    def _show_diagnostics(self, *, run_checks: bool = False) -> None:
+        if self.recording_service.is_recording or self.transcription_service.is_processing:
+            return
+        self.storage_timer.stop()
+        self.pages.setCurrentWidget(self.diagnostics_page)
+        self.diagnostics_button.setChecked(True)
+        if run_checks:
+            self.diagnostics_page.run_all_checks()
 
     def _open_transcription(self, session_id: str) -> None:
         if self.recording_service.is_recording or self.transcription_service.is_processing:
@@ -1027,6 +1121,12 @@ class MainWindow(QMainWindow):
         self.home_button = QPushButton("Home")
         self.history_button = QPushButton("History")
         self.diagnostics_button = QPushButton("Diagnostics")
+        self.home_button.setShortcut(QKeySequence("Alt+1"))
+        self.history_button.setShortcut(QKeySequence("Alt+2"))
+        self.diagnostics_button.setShortcut(QKeySequence("Alt+3"))
+        self.home_button.setToolTip("Home (Alt+1)")
+        self.history_button.setToolTip("History (Alt+2)")
+        self.diagnostics_button.setToolTip("Diagnostics (Alt+3)")
         for button in (self.home_button, self.history_button, self.diagnostics_button):
             button.setCheckable(True)
             button.setAutoExclusive(True)
@@ -1034,9 +1134,7 @@ class MainWindow(QMainWindow):
         self.home_button.setChecked(True)
         self.home_button.clicked.connect(self._show_home)
         self.history_button.clicked.connect(self._show_history)
-        self.diagnostics_button.clicked.connect(
-            lambda: self.pages.setCurrentWidget(self.diagnostics_page)
-        )
+        self.diagnostics_button.clicked.connect(lambda: self._show_diagnostics())
 
         layout.addStretch()
         privacy = _label(

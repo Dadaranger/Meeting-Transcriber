@@ -9,6 +9,7 @@ also publishes those files to a GitHub Release.
 - [ ] Update `pyproject.toml`, `meeting_transcriber.__version__`,
   `packaging/windows-version.txt`, and the installer default to the same version.
 - [ ] Run `scripts/check.cmd` from a clean locked environment.
+- [ ] Run `scripts/release_readiness.ps1` and retain its workflow/run link.
 - [ ] Run `scripts/build_windows.ps1` on Windows and confirm the packaged smoke test passes.
 - [ ] Run `scripts/build_installer.ps1 -AppVersion <version>`.
 - [ ] Install for the current user on a clean Windows 10/11 x64 VM with no Python.

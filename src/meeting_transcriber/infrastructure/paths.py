@@ -11,12 +11,20 @@ def default_meetings_directory() -> Path:
 
 
 def default_models_directory() -> Path:
+    return default_application_data_directory() / "models"
+
+
+def default_application_data_directory() -> Path:
     application_data = QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.AppLocalDataLocation
     )
     if not application_data:
         application_data = str(Path.home() / ".meeting-transcriber")
-    return Path(application_data) / "models"
+    return Path(application_data)
+
+
+def default_first_run_state_file() -> Path:
+    return default_application_data_directory() / "first-run.json"
 
 
 def application_icon_path() -> Path:

@@ -58,6 +58,12 @@ meeting metadata, participant/source labels, timestamps, and the complete
 conversation. History marks sessions whose notes are ready and can open the file
 directly. Prior rendered runs are retained under `derived/meeting-notes/`.
 
+On the first desktop launch, the app opens a local readiness walkthrough. It checks
+free meeting storage, enumerates microphone and system-loopback devices, reports the
+offline transcription runtime and cached models, and inspects optional diarization.
+These checks do not record audio or download anything. Navigation shortcuts are
+`Alt+1` (Home), `Alt+2` (History), `Alt+3` (Diagnostics), and `Ctrl+N` (new meeting).
+
 History can also open an in-app transcript review screen. Speaker/source labels,
 segment speaker assignments, and important segment text can be corrected one change
 at a time; each change updates the Markdown notes and creates a retained review

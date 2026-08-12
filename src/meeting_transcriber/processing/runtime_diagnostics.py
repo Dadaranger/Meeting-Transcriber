@@ -10,6 +10,38 @@ from meeting_transcriber.processing.diarization_engine import DiarizationModelMa
 
 
 @dataclass(frozen=True, slots=True)
+class TranscriptionRuntimeStatus:
+    runtime_installed: bool
+    cached_models: tuple[str, ...]
+    model_root: Path
+
+    @property
+    def summary(self) -> str:
+        runtime = "installed" if self.runtime_installed else "not installed"
+        models = ", ".join(self.cached_models) if self.cached_models else "none"
+        return (
+            f"faster-whisper: {runtime}\n"
+            f"Cached speech models: {models}\n"
+            f"Model folder: {self.model_root}"
+        )
+
+
+def inspect_transcription_runtime(model_root: Path) -> TranscriptionRuntimeStatus:
+    cached_models = tuple(
+        sorted(
+            path.name.removeprefix("models--").replace("--", "/")
+            for path in model_root.glob("models--*faster-whisper*")
+            if path.is_dir()
+        )
+    )
+    return TranscriptionRuntimeStatus(
+        runtime_installed=_module_available("faster_whisper"),
+        cached_models=cached_models,
+        model_root=model_root,
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class DiarizationRuntimeStatus:
     runtime_installed: bool
     model_cached: bool

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QInputDialog, QMessageBox
+from PySide6.QtWidgets import QInputDialog, QMessageBox, QPushButton
 from pytestqt.qtbot import QtBot
 
 from meeting_transcriber.app.recording_service import RecordingLevels, RecordingStopResult
@@ -31,6 +31,7 @@ from meeting_transcriber.domain.transcript import (
     TranscriptSource,
     TranscriptSpeaker,
 )
+from meeting_transcriber.storage.first_run_store import FirstRunStore
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.session_store import SessionStore
@@ -311,6 +312,51 @@ def test_diagnostics_refreshes_audio_devices_explicitly(qtbot: QtBot, tmp_path: 
     assert "pyannote.audio:" in runtime
     assert "Community-1 model:" in runtime
     assert "PyTorch:" in runtime
+
+
+def test_first_run_guides_readiness_checks_and_persists_completion(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    service = MeetingSessionService(SessionStore(tmp_path / "meetings"))
+    first_run = FirstRunStore(tmp_path / "settings" / "first-run.json")
+    window = MainWindow(
+        service,
+        FakeAudioDiscovery(),
+        first_run_store=first_run,
+    )
+    qtbot.addWidget(window)
+
+    assert window.pages.currentWidget() is window.diagnostics_page
+    assert "Test microphone" in window.diagnostics_page.audio_card.value_label.text()
+    assert "GiB free" in window.diagnostics_page.storage_card.value_label.text()
+    assert "faster-whisper:" in window.diagnostics_page.transcription_card.value_label.text()
+    assert not first_run.is_complete()
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.diagnostics_page.finish_setup_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert first_run.is_complete()
+    assert window.pages.currentWidget() is window.home_page
+
+
+def test_main_window_controls_have_keyboard_routes_and_accessible_names(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    window = MainWindow(
+        MeetingSessionService(SessionStore(tmp_path)),
+        FakeAudioDiscovery(),
+    )
+    qtbot.addWidget(window)
+
+    assert window.home_button.shortcut().toString() == "Alt+1"
+    assert window.history_button.shortcut().toString() == "Alt+2"
+    assert window.diagnostics_button.shortcut().toString() == "Alt+3"
+    assert window.new_meeting_shortcut.key().toString() == "Ctrl+N"
+    assert all(button.accessibleName() for button in window.findChildren(QPushButton))
 
 
 def test_consent_gated_ui_starts_and_stops_visible_recording(
