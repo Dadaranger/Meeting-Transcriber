@@ -10,7 +10,9 @@ from meeting_transcriber.processing.engine import (
     MODEL_PROFILES,
     FasterWhisperEngine,
     TranscriptionCancelled,
+    TranscriptionDependencyUnavailable,
     TranscriptionEngineError,
+    _load_whisper_model,
 )
 from meeting_transcriber.processing.preparation import PreparedAudioChunk
 
@@ -175,4 +177,24 @@ def test_engine_reports_local_model_cache_failure(tmp_path: Path) -> None:
             language=None,
             hotwords=None,
             cancel_requested=lambda: False,
+        )
+
+
+def test_default_model_loader_reports_missing_optional_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing_module(_name: str) -> object:
+        raise ModuleNotFoundError("Synthetic missing optional runtime")
+
+    monkeypatch.setattr(
+        "meeting_transcriber.processing.engine.importlib.import_module", missing_module
+    )
+
+    with pytest.raises(TranscriptionDependencyUnavailable, match="transcription extra"):
+        _load_whisper_model(
+            "small",
+            device="cpu",
+            compute_type="int8",
+            download_root="models",
+            local_files_only=True,
         )

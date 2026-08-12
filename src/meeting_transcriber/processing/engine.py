@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import math
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -123,14 +124,15 @@ def _load_whisper_model(
     local_files_only: bool,
 ) -> _WhisperModel:
     try:
-        from faster_whisper import WhisperModel  # type: ignore[import-untyped]
-    except ImportError as error:
+        module = importlib.import_module("faster_whisper")
+        model_factory = cast(WhisperModelFactory, module.WhisperModel)
+    except (ImportError, AttributeError) as error:
         raise TranscriptionDependencyUnavailable(
             "Install the transcription extra before loading a local speech model"
         ) from error
     return cast(
         _WhisperModel,
-        WhisperModel(
+        model_factory(
             model_name,
             device=device,
             compute_type=compute_type,
