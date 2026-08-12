@@ -215,6 +215,8 @@ def _job_document(job: TranscriptionJob) -> dict[str, object]:
         "attempt": job.attempt,
         "processed_audio_ms": job.processed_audio_ms,
         "total_audio_ms": job.total_audio_ms,
+        "model_downloaded_bytes": job.model_downloaded_bytes,
+        "model_total_bytes": job.model_total_bytes,
         "error": job.error,
         "separate_remote_speakers": job.separate_remote_speakers,
         "min_remote_speakers": job.min_remote_speakers,
@@ -225,7 +227,7 @@ def _job_document(job: TranscriptionJob) -> dict[str, object]:
 
 def _parse_job(document: Mapping[str, object]) -> TranscriptionJob:
     schema_version = document.get("schema_version")
-    if schema_version not in {1, TranscriptionJob.SCHEMA_VERSION}:
+    if schema_version not in {1, 2, TranscriptionJob.SCHEMA_VERSION}:
         raise UnsupportedTranscriptSchema(
             f"Unsupported transcription job schema {document.get('schema_version')!r}"
         )
@@ -241,17 +243,31 @@ def _parse_job(document: Mapping[str, object]) -> TranscriptionJob:
             attempt=_integer(document, "attempt"),
             processed_audio_ms=_integer(document, "processed_audio_ms"),
             total_audio_ms=_integer(document, "total_audio_ms"),
+            model_downloaded_bytes=(
+                _integer(document, "model_downloaded_bytes") if schema_version == 3 else 0
+            ),
+            model_total_bytes=(
+                _integer(document, "model_total_bytes") if schema_version == 3 else 0
+            ),
             error=_string(document, "error", optional=True),
             separate_remote_speakers=(
-                _boolean(document, "separate_remote_speakers") if schema_version == 2 else False
+                _boolean(document, "separate_remote_speakers")
+                if schema_version in {2, 3}
+                else False
             ),
             min_remote_speakers=(
-                _optional_integer(document, "min_remote_speakers") if schema_version == 2 else None
+                _optional_integer(document, "min_remote_speakers")
+                if schema_version in {2, 3}
+                else None
             ),
             max_remote_speakers=(
-                _optional_integer(document, "max_remote_speakers") if schema_version == 2 else None
+                _optional_integer(document, "max_remote_speakers")
+                if schema_version in {2, 3}
+                else None
             ),
-            warning=_string(document, "warning", optional=True) if schema_version == 2 else None,
+            warning=(
+                _string(document, "warning", optional=True) if schema_version in {2, 3} else None
+            ),
         )
     except (TypeError, ValueError) as error:
         if isinstance(error, TranscriptDataError):

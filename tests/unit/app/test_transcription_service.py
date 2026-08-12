@@ -73,6 +73,7 @@ class FakeEngine:
         self.block_until_cancelled = block_until_cancelled
         self.started = Event()
         self.calls: list[PreparedAudioChunk] = []
+        self.prepared = False
 
     @property
     def engine_name(self) -> str:
@@ -81,6 +82,18 @@ class FakeEngine:
     @property
     def model_name(self) -> str:
         return "fixture-model"
+
+    def prepare(
+        self,
+        *,
+        cancel_requested: Callable[[], bool],
+        progress_callback: Callable[[int, int], None],
+    ) -> None:
+        if cancel_requested():
+            raise TranscriptionCancelled("Synthetic cancellation")
+        progress_callback(50, 100)
+        progress_callback(100, 100)
+        self.prepared = True
 
     def transcribe_chunk(
         self,
@@ -244,6 +257,9 @@ def test_transcription_merges_sources_and_persists_ready_transcript(tmp_path: Pa
     assert "Remote reply" in notes
     assert preparer.run_ids == [started.job_id]
     assert factory.calls == [(TranscriptionProfile.BALANCED, False)]
+    assert engine.prepared
+    assert completed.model_downloaded_bytes == 100
+    assert completed.model_total_bytes == 100
 
 
 def test_transcription_cancel_returns_session_to_recorded(tmp_path: Path) -> None:

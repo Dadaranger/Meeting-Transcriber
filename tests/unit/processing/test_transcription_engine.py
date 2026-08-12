@@ -68,9 +68,10 @@ class FakeModel:
 
 
 class FakeModelFactory:
-    def __init__(self, model: FakeModel, *, fail: bool = False):
+    def __init__(self, model: FakeModel, *, fail: bool = False, failures: int = 0):
         self.model = model
         self.fail = fail
+        self.failures = failures
         self.calls: list[tuple[str, str, str, str, bool]] = []
 
     def __call__(
@@ -83,9 +84,28 @@ class FakeModelFactory:
         local_files_only: bool,
     ) -> FakeModel:
         self.calls.append((model_name, device, compute_type, download_root, local_files_only))
-        if self.fail:
+        if self.fail or self.failures:
+            self.failures = max(0, self.failures - 1)
             raise OSError("Synthetic model cache miss")
         return self.model
+
+
+class FakeModelManager:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def ensure_available(
+        self,
+        model_name: str,
+        *,
+        cancel_requested: object,
+        progress_callback: object,
+    ) -> object:
+        assert callable(cancel_requested)
+        assert callable(progress_callback)
+        progress_callback(10, 20)
+        self.calls.append(model_name)
+        return object()
 
 
 def _chunk(tmp_path: Path) -> PreparedAudioChunk:
@@ -162,6 +182,51 @@ def test_engine_checks_cancellation_before_loading_a_model(tmp_path: Path) -> No
         )
 
     assert factory.calls == []
+
+
+def test_engine_acquires_download_then_loads_strictly_from_local_cache(tmp_path: Path) -> None:
+    factory = FakeModelFactory(FakeModel(), failures=1)
+    manager = FakeModelManager()
+    progress: list[tuple[int, int]] = []
+    engine = FasterWhisperEngine(
+        TranscriptionProfile.FAST,
+        tmp_path / "models",
+        allow_download=True,
+        model_factory=factory,
+        model_manager=manager,
+    )
+
+    engine.prepare(
+        cancel_requested=lambda: False,
+        progress_callback=lambda downloaded, total: progress.append((downloaded, total)),
+    )
+
+    assert manager.calls == ["small"]
+    assert progress == [(10, 20)]
+    assert factory.calls == [
+        ("small", "cpu", "int8", str(tmp_path / "models"), True),
+        ("small", "cpu", "int8", str(tmp_path / "models"), True),
+    ]
+
+
+def test_engine_uses_cached_model_without_network_metadata_check(tmp_path: Path) -> None:
+    factory = FakeModelFactory(FakeModel())
+    manager = FakeModelManager()
+    engine = FasterWhisperEngine(
+        TranscriptionProfile.FAST,
+        tmp_path / "models",
+        allow_download=True,
+        model_factory=factory,
+        model_manager=manager,
+    )
+
+    engine.prepare(
+        cancel_requested=lambda: False,
+        progress_callback=lambda _downloaded, _total: None,
+    )
+
+    assert manager.calls == []
+    assert factory.calls == [("small", "cpu", "int8", str(tmp_path / "models"), True)]
 
 
 def test_engine_reports_local_model_cache_failure(tmp_path: Path) -> None:

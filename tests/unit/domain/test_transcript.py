@@ -113,6 +113,8 @@ def test_transcription_job_tracks_progress_failure_and_retry() -> None:
         created_at=START,
     )
     job = job.transition(TranscriptionJobState.PREPARING, at=START + timedelta(seconds=1))
+    job = job.with_model_download_progress(250, 1_000, at=START + timedelta(seconds=1))
+    assert job.progress == 0.25
     job = job.with_progress(100, 1_000, at=START + timedelta(seconds=2))
     job = job.transition(TranscriptionJobState.TRANSCRIBING, at=START + timedelta(seconds=3))
     job = job.with_progress(400, 1_000, at=START + timedelta(seconds=4))
@@ -130,6 +132,8 @@ def test_transcription_job_tracks_progress_failure_and_retry() -> None:
     assert retried.state is TranscriptionJobState.PENDING
     assert retried.attempt == 2
     assert retried.progress == 0.0
+    assert retried.model_downloaded_bytes == 0
+    assert retried.model_total_bytes == 0
     assert retried.error is None
 
 

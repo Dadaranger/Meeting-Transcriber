@@ -81,6 +81,23 @@ def test_transcription_page_shows_progress_and_retryable_failure(qtbot: QtBot) -
     assert "Model unavailable" in page.previous_status.text()
 
 
+def test_transcription_page_shows_persisted_model_download_progress(qtbot: QtBot) -> None:
+    page = TranscriptionPage()
+    qtbot.addWidget(page)
+    session = _recorded_session()
+    job = TranscriptionJob.new(session.session_id, profile=TranscriptionProfile.FAST)
+    job = job.transition(TranscriptionJobState.PREPARING)
+    job = job.with_model_download_progress(128 * 1024 * 1024, 512 * 1024 * 1024)
+
+    page.load_session(session)
+    page.show_job(job)
+
+    assert page.progress_bar.value() == 25
+    assert "small speech model" in page.progress_title.text()
+    assert "128.0 of 512.0 MiB" in page.progress_detail.text()
+    assert "models" in page.progress_detail.text()
+
+
 def test_transcription_page_shows_indeterminate_diarization_and_fallback_warning(
     qtbot: QtBot,
 ) -> None:

@@ -327,13 +327,28 @@ class MeetingTranscriptionService:
                     current.job_id,
                 )
                 current = current.with_progress(0, plan.total_audio_ms)
+                self._persist_current(current)
+                engine = self.engine_factory(current.profile, allow_download=allow_download)
+
+                def update_model_progress(downloaded_bytes: int, total_bytes: int) -> None:
+                    nonlocal current
+                    current = current.with_model_download_progress(
+                        downloaded_bytes,
+                        total_bytes,
+                    )
+                    self._persist_current(current)
+
+                engine.prepare(
+                    cancel_requested=self._cancel_event.is_set,
+                    progress_callback=update_model_progress,
+                )
                 current = current.transition(TranscriptionJobState.TRANSCRIBING)
                 self._persist_current(current)
                 transcript = self._transcribe_plan(
                     current,
                     plan,
+                    engine,
                     hotwords=hotwords,
-                    allow_download=allow_download,
                 )
                 current = self.current_job() or current
                 self.transcript_store.save_transcript(transcript)
@@ -393,11 +408,10 @@ class MeetingTranscriptionService:
         self,
         current: TranscriptionJob,
         plan: PreparedAudioPlan,
+        engine: TranscriptionEngine,
         *,
         hotwords: str | None,
-        allow_download: bool,
     ) -> TranscriptDocument:
-        engine = self.engine_factory(current.profile, allow_download=allow_download)
         segments: list[TranscriptSegment] = []
         language_scores: dict[str, float] = defaultdict(float)
         processed_ms = 0

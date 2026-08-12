@@ -200,7 +200,7 @@ class TranscriptDocument:
 
 @dataclass(frozen=True, slots=True)
 class TranscriptionJob:
-    SCHEMA_VERSION: ClassVar[int] = 2
+    SCHEMA_VERSION: ClassVar[int] = 3
 
     job_id: str
     session_id: str
@@ -212,6 +212,8 @@ class TranscriptionJob:
     attempt: int = 1
     processed_audio_ms: int = 0
     total_audio_ms: int = 0
+    model_downloaded_bytes: int = 0
+    model_total_bytes: int = 0
     error: str | None = None
     separate_remote_speakers: bool = False
     min_remote_speakers: int | None = None
@@ -231,6 +233,10 @@ class TranscriptionJob:
             raise ValueError("Transcription progress cannot be negative")
         if self.total_audio_ms and self.processed_audio_ms > self.total_audio_ms:
             raise ValueError("Processed transcription audio cannot exceed the total")
+        if self.model_downloaded_bytes < 0 or self.model_total_bytes < 0:
+            raise ValueError("Model download progress cannot be negative")
+        if self.model_downloaded_bytes > self.model_total_bytes:
+            raise ValueError("Downloaded model bytes cannot exceed the total")
         if self.state is TranscriptionJobState.FAILED and not self.error:
             raise ValueError("Failed transcription jobs require an error")
         if self.state is not TranscriptionJobState.FAILED and self.error is not None:
@@ -283,9 +289,17 @@ class TranscriptionJob:
     def progress(self) -> float:
         if self.state is TranscriptionJobState.COMPLETED:
             return 1.0
+        if self.state is TranscriptionJobState.PREPARING and self.model_total_bytes:
+            return self.model_downloaded_bytes / self.model_total_bytes
         if self.total_audio_ms == 0:
             return 0.0
         return self.processed_audio_ms / self.total_audio_ms
+
+    @property
+    def model_download_progress(self) -> float:
+        if self.model_total_bytes == 0:
+            return 0.0
+        return self.model_downloaded_bytes / self.model_total_bytes
 
     def transition(
         self,
@@ -339,6 +353,24 @@ class TranscriptionJob:
             raise ValueError("Transcription warning cannot be blank")
         return replace(self, warning=normalized, updated_at=_utc_timestamp(at))
 
+    def with_model_download_progress(
+        self,
+        downloaded_bytes: int,
+        total_bytes: int,
+        *,
+        at: datetime | None = None,
+    ) -> TranscriptionJob:
+        if self.state is not TranscriptionJobState.PREPARING:
+            raise InvalidTranscriptionJobTransition(
+                "Model download progress requires a preparing job"
+            )
+        return replace(
+            self,
+            model_downloaded_bytes=downloaded_bytes,
+            model_total_bytes=total_bytes,
+            updated_at=_utc_timestamp(at),
+        )
+
     def retry(self, *, at: datetime | None = None) -> TranscriptionJob:
         if TranscriptionJobState.PENDING not in ALLOWED_JOB_TRANSITIONS[self.state]:
             raise InvalidTranscriptionJobTransition("Only cancelled or failed jobs can retry")
@@ -349,6 +381,8 @@ class TranscriptionJob:
             attempt=self.attempt + 1,
             processed_audio_ms=0,
             total_audio_ms=0,
+            model_downloaded_bytes=0,
+            model_total_bytes=0,
             error=None,
             warning=None,
         )

@@ -21,6 +21,7 @@ from meeting_transcriber.domain.transcript import (
     TranscriptionJobState,
     TranscriptionProfile,
 )
+from meeting_transcriber.infrastructure.paths import default_models_directory
 from meeting_transcriber.processing.engine import MODEL_PROFILES
 
 
@@ -263,10 +264,20 @@ class TranscriptionPage(QWidget):
             else:
                 self.progress_bar.setRange(0, 100)
                 self.progress_bar.setValue(round(job.progress * 100))
-                self.progress_title.setText("Preparing audio and model")
-                self.progress_detail.setText(
-                    "Validating chunks and loading the selected local speech model."
-                )
+                if job.model_total_bytes:
+                    downloaded = job.model_downloaded_bytes / (1024 * 1024)
+                    total = job.model_total_bytes / (1024 * 1024)
+                    model_name = MODEL_PROFILES[job.profile].model_name
+                    self.progress_title.setText(f"Downloading {model_name} speech model")
+                    self.progress_detail.setText(
+                        f"Cached {downloaded:.1f} of {total:.1f} MiB in "
+                        f"{default_models_directory()}."
+                    )
+                else:
+                    self.progress_title.setText("Preparing audio and model")
+                    self.progress_detail.setText(
+                        "Checking the selected speech model and validating prepared audio."
+                    )
             return
         self.progress_card.hide()
         self.progress_bar.setRange(0, 100)
@@ -283,7 +294,9 @@ class TranscriptionPage(QWidget):
 
     def set_cancelling(self) -> None:
         self.cancel_button.setEnabled(False)
-        self.progress_detail.setText("Cancellation requested; waiting for a safe model boundary…")
+        self.progress_detail.setText(
+            "Cancellation requested; stopping at the current download or model boundary…"
+        )
 
     def reset_cancel_control(self) -> None:
         self.cancel_button.setEnabled(True)
@@ -297,7 +310,8 @@ class TranscriptionPage(QWidget):
         settings = MODEL_PROFILES[profile]
         self.profile_description.setText(
             f"Model: {settings.model_name}; decoding beam: {settings.beam_size}. "
-            "Larger profiles need more memory and processing time."
+            f"Larger profiles need more memory and processing time. Cache: "
+            f"{default_models_directory()}."
         )
 
     def _language(self) -> str:
