@@ -25,11 +25,13 @@ from meeting_transcriber.processing.engine import (
     TranscriptionCancelled,
     TranscriptionEngine,
 )
+from meeting_transcriber.processing.markdown_export import render_meeting_notes
 from meeting_transcriber.processing.preparation import (
     AudioPreparationService,
     PreparedAudioChunk,
     PreparedAudioPlan,
 )
+from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.transcript_store import (
     TranscriptNotFoundError,
     TranscriptStore,
@@ -51,6 +53,10 @@ class TranscriptionEngineFactory(Protocol):
         *,
         allow_download: bool,
     ) -> TranscriptionEngine: ...
+
+
+class MeetingNotesWriter(Protocol):
+    def save(self, session_id: str, run_id: str, markdown: str) -> Path: ...
 
 
 class TranscriptionWorkflow(Protocol):
@@ -102,11 +108,13 @@ class MeetingTranscriptionService:
         *,
         preparer: AudioPreparer | None = None,
         engine_factory: TranscriptionEngineFactory | None = None,
+        notes_store: MeetingNotesWriter | None = None,
     ):
         self.session_service = session_service
         self.transcript_store = transcript_store
         self.preparer = preparer or AudioPreparationService()
         self.engine_factory = engine_factory or _default_engine_factory(model_cache)
+        self.notes_store = notes_store or MeetingNotesStore(transcript_store.meeting_root)
         self._lock = Lock()
         self._cancel_event = Event()
         self._thread: Thread | None = None
@@ -233,6 +241,19 @@ class MeetingTranscriptionService:
         try:
             current = current.transition(TranscriptionJobState.PREPARING)
             self._persist_current(current)
+            existing_transcript = self._existing_transcript(current)
+            if existing_transcript is not None:
+                current = current.with_progress(
+                    existing_transcript.duration_ms,
+                    existing_transcript.duration_ms,
+                )
+                current = current.transition(TranscriptionJobState.TRANSCRIBING)
+                self._persist_current(current)
+                self._save_meeting_notes(existing_transcript)
+                self.session_service.transition_state(current.session_id, SessionState.READY)
+                current = current.transition(TranscriptionJobState.COMPLETED)
+                self._persist_current(current)
+                return
             plan = self.preparer.prepare(
                 self.session_service.session_directory(current.session_id),
                 current.job_id,
@@ -290,6 +311,7 @@ class MeetingTranscriptionService:
                 ),
             )
             self.transcript_store.save_transcript(transcript)
+            self._save_meeting_notes(transcript)
             self.session_service.transition_state(current.session_id, SessionState.READY)
             current = current.transition(TranscriptionJobState.COMPLETED)
             self._persist_current(current)
@@ -315,6 +337,17 @@ class MeetingTranscriptionService:
         self.transcript_store.save_job(job)
         with self._lock:
             self._job = job
+
+    def _existing_transcript(self, job: TranscriptionJob) -> TranscriptDocument | None:
+        try:
+            return self.transcript_store.load_transcript(job.session_id, job.job_id)
+        except TranscriptNotFoundError:
+            return None
+
+    def _save_meeting_notes(self, transcript: TranscriptDocument) -> Path:
+        session = self.session_service.get_session(transcript.session_id)
+        markdown = render_meeting_notes(session, transcript)
+        return self.notes_store.save(transcript.session_id, transcript.run_id, markdown)
 
     def _restore_recorded_state(self, session_id: str) -> None:
         with suppress(OSError, ValueError):

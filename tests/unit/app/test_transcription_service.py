@@ -20,6 +20,7 @@ from meeting_transcriber.processing.engine import (
     TranscriptionEngine,
 )
 from meeting_transcriber.processing.preparation import PreparedAudioChunk, PreparedAudioPlan
+from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.session_store import SessionStore
 from meeting_transcriber.storage.transcript_store import TranscriptStore
 
@@ -180,6 +181,10 @@ def test_transcription_merges_sources_and_persists_ready_transcript(tmp_path: Pa
         (600, "remote", "Remote reply"),
     ]
     assert transcript.segments[1].words[0].start_ms == 600
+    notes = MeetingNotesStore(tmp_path).notes_file(session_id).read_text(encoding="utf-8")
+    assert notes.startswith("# Recorded meeting\n")
+    assert "**00:00:00.100 to 00:00:00.500 · You · Microphone" in notes
+    assert "Remote reply" in notes
     assert preparer.run_ids == [started.job_id]
     assert factory.calls == [(TranscriptionProfile.BALANCED, False)]
 
@@ -236,6 +241,68 @@ def test_failed_transcription_retry_reuses_run_and_prepared_audio(tmp_path: Path
     assert completed.state is TranscriptionJobState.COMPLETED
     assert preparer.run_ids == [first.job_id, first.job_id]
     assert transcripts.load_transcript(session_id).run_id == first.job_id
+
+
+class FailOnceNotesStore:
+    def __init__(self, delegate: MeetingNotesStore):
+        self.delegate = delegate
+        self.calls = 0
+
+    def save(self, session_id: str, run_id: str, markdown: str) -> Path:
+        self.calls += 1
+        if self.calls == 1:
+            raise OSError("Synthetic notes write failure")
+        return self.delegate.save(session_id, run_id, markdown)
+
+
+def test_notes_failure_retry_reuses_completed_transcript_without_model_rerun(
+    tmp_path: Path,
+) -> None:
+    sessions = MeetingSessionService(SessionStore(tmp_path))
+    session_id = _recorded_session(sessions)
+    transcripts = TranscriptStore(tmp_path)
+    preparer = FakePreparer(session_id, tmp_path)
+    factory = FakeEngineFactory([FakeEngine()])
+    notes = FailOnceNotesStore(MeetingNotesStore(tmp_path))
+    service = MeetingTranscriptionService(
+        sessions,
+        transcripts,
+        tmp_path / "models",
+        preparer=preparer,
+        engine_factory=factory,
+        notes_store=notes,
+    )
+
+    first = service.start(
+        session_id,
+        profile=TranscriptionProfile.BALANCED,
+        language="en",
+        hotwords=None,
+        allow_download=False,
+    )
+    failed = service.wait()
+
+    assert failed.state is TranscriptionJobState.FAILED
+    assert "Synthetic notes write failure" in (failed.error or "")
+    assert transcripts.load_transcript(session_id, first.job_id).run_id == first.job_id
+    assert sessions.get_session(session_id).state is SessionState.RECORDED
+
+    retried = service.start(
+        session_id,
+        profile=TranscriptionProfile.BALANCED,
+        language="en",
+        hotwords=None,
+        allow_download=False,
+    )
+    completed = service.wait()
+
+    assert retried.job_id == first.job_id
+    assert completed.state is TranscriptionJobState.COMPLETED
+    assert sessions.get_session(session_id).state is SessionState.READY
+    assert notes.calls == 2
+    assert preparer.run_ids == [first.job_id]
+    assert factory.engines == []
+    assert MeetingNotesStore(tmp_path).notes_file(session_id).exists()
 
 
 def test_startup_recovers_interrupted_transcription_job(tmp_path: Path) -> None:
