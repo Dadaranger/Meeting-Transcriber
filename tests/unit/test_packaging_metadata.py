@@ -42,3 +42,12 @@ def test_workflow_artifact_name_is_safe_for_pull_request_refs() -> None:
 
     assert "name: meeting-transcriber-windows-${{ github.run_id }}" in upload_step
     assert "github.ref_name" not in upload_step
+
+
+def test_ci_installs_the_optional_transcription_runtime_it_tests() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    install_step = workflow.split("- name: Install locked dependencies", maxsplit=1)[1].split(
+        "- name:", maxsplit=1
+    )[0]
+
+    assert "uv sync --frozen --extra dev --extra transcription" in install_step
