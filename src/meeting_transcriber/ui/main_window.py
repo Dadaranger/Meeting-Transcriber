@@ -28,6 +28,7 @@ from meeting_transcriber.app.recording_service import (
     RecordingWorkflow,
     RecordingWorkflowError,
 )
+from meeting_transcriber.app.review_service import MeetingReviewService, ReviewWorkflowError
 from meeting_transcriber.app.session_service import (
     MeetingSessionService,
     SessionRecoveryError,
@@ -54,10 +55,12 @@ from meeting_transcriber.infrastructure.paths import (
     default_models_directory,
 )
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
+from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.session_store import SessionStore
 from meeting_transcriber.storage.transcript_store import TranscriptStore
 from meeting_transcriber.ui.history_page import HistoryPage
 from meeting_transcriber.ui.recording_page import RecordingPage
+from meeting_transcriber.ui.review_page import TranscriptReviewPage
 from meeting_transcriber.ui.transcription_page import TranscriptionPage
 
 APP_STYLE = """
@@ -397,6 +400,14 @@ class MainWindow(QMainWindow):
         self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
         self.folder_opener = folder_opener or open_local_folder
         self.notes_store = MeetingNotesStore(self.session_service.store.root)
+        self.transcript_store = TranscriptStore(self.session_service.store.root)
+        self.review_store = ReviewStore(self.session_service.store.root)
+        self.review_service = MeetingReviewService(
+            self.session_service,
+            self.transcript_store,
+            self.review_store,
+            self.notes_store,
+        )
         abandoned_sessions = self.session_service.recover_abandoned_recordings()
         self.recording_service = recording_service or MeetingRecordingService(
             self.session_service,
@@ -405,8 +416,9 @@ class MainWindow(QMainWindow):
         )
         self.transcription_service = transcription_service or MeetingTranscriptionService(
             self.session_service,
-            TranscriptStore(self.session_service.store.root),
+            self.transcript_store,
             default_models_directory(),
+            review_store=self.review_store,
         )
         recovered_transcriptions = self.transcription_service.recover_interrupted_jobs()
         self.setWindowTitle("Meeting Transcriber")
@@ -427,6 +439,7 @@ class MainWindow(QMainWindow):
         self.history_page.refresh_requested.connect(self._refresh_history)
         self.history_page.open_folder_requested.connect(self._open_session_folder)
         self.history_page.open_notes_requested.connect(self._open_meeting_notes)
+        self.history_page.review_requested.connect(self._open_review)
         self.history_page.recover_requested.connect(self._recover_session)
         self.history_page.transcribe_requested.connect(self._open_transcription)
         self.pages.addWidget(self.history_page)
@@ -444,6 +457,12 @@ class MainWindow(QMainWindow):
         self.transcription_page.cancel_requested.connect(self._cancel_transcription)
         self.transcription_page.back_requested.connect(self._show_history)
         self.pages.addWidget(self.transcription_page)
+        self.review_page = TranscriptReviewPage()
+        self.review_page.rename_requested.connect(self._rename_review_speaker)
+        self.review_page.correction_requested.connect(self._correct_review_segment)
+        self.review_page.open_notes_requested.connect(self._open_meeting_notes)
+        self.review_page.back_requested.connect(self._show_history)
+        self.pages.addWidget(self.review_page)
         self.diagnostics_page = DiagnosticsPage(self.audio_backend)
         self.pages.addWidget(self.diagnostics_page)
 
@@ -731,7 +750,12 @@ class MainWindow(QMainWindow):
             for session in sessions
             if self.notes_store.notes_file(session.session_id).is_file()
         )
-        self.history_page.load_sessions(sessions, recoverable_ids, notes_ids)
+        transcript_ids = frozenset(
+            session.session_id
+            for session in sessions
+            if self.transcript_store.transcript_file(session.session_id).is_file()
+        )
+        self.history_page.load_sessions(sessions, recoverable_ids, notes_ids, transcript_ids)
 
     def _open_session_folder(self, session_id: str) -> None:
         directory = self.session_service.session_directory(session_id)
@@ -756,6 +780,67 @@ class MainWindow(QMainWindow):
             "Meeting notes could not be opened",
             f"Open this file manually:\n{notes_path}",
         )
+
+    def _open_review(self, session_id: str) -> None:
+        if self.recording_service.is_recording or self.transcription_service.is_processing:
+            return
+        try:
+            snapshot = self.review_service.load(session_id)
+            session = self.session_service.get_session(session_id)
+        except (ReviewWorkflowError, OSError, ValueError) as error:
+            QMessageBox.warning(self, "Transcript review could not open", str(error))
+            self.statusBar().showMessage(f"Review could not open - {error}")
+            return
+        self.review_page.load_snapshot(session, snapshot)
+        self.pages.setCurrentWidget(self.review_page)
+        self.history_button.setChecked(False)
+        self.statusBar().showMessage(f"Reviewing transcript - {session.title}")
+
+    def _rename_review_speaker(
+        self,
+        session_id: str,
+        speaker_id: str,
+        display_name: str,
+    ) -> None:
+        selected_segment = self.review_page.selected_segment_id()
+        try:
+            snapshot = self.review_service.rename_speaker(
+                session_id,
+                speaker_id,
+                display_name,
+            )
+        except ReviewWorkflowError as error:
+            QMessageBox.warning(self, "Speaker name could not be saved", str(error))
+            return
+        self.review_page.load_snapshot(
+            self.session_service.get_session(session_id),
+            snapshot,
+            selected_speaker_id=speaker_id,
+            selected_segment_id=selected_segment,
+            saved_message="Speaker name saved.",
+        )
+        self.statusBar().showMessage("Speaker name and meeting notes updated", 8_000)
+
+    def _correct_review_segment(
+        self,
+        session_id: str,
+        segment_id: str,
+        text: str,
+    ) -> None:
+        selected_speaker = self.review_page.selected_speaker_id()
+        try:
+            snapshot = self.review_service.correct_segment(session_id, segment_id, text)
+        except ReviewWorkflowError as error:
+            QMessageBox.warning(self, "Transcript correction could not be saved", str(error))
+            return
+        self.review_page.load_snapshot(
+            self.session_service.get_session(session_id),
+            snapshot,
+            selected_speaker_id=selected_speaker,
+            selected_segment_id=segment_id,
+            saved_message="Transcript correction saved.",
+        )
+        self.statusBar().showMessage("Transcript correction and meeting notes updated", 8_000)
 
     def _recover_session(self, session_id: str) -> None:
         try:

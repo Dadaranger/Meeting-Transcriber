@@ -27,6 +27,7 @@ class HistoryPage(QWidget):
     refresh_requested = Signal()
     open_folder_requested = Signal(str)
     open_notes_requested = Signal(str)
+    review_requested = Signal(str)
     recover_requested = Signal(str)
     transcribe_requested = Signal(str)
 
@@ -35,6 +36,7 @@ class HistoryPage(QWidget):
         self._sessions: dict[str, MeetingSession] = {}
         self._recoverable_ids: frozenset[str] = frozenset()
         self._notes_ids: frozenset[str] = frozenset()
+        self._transcript_ids: frozenset[str] = frozenset()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(38, 32, 38, 32)
@@ -81,6 +83,10 @@ class HistoryPage(QWidget):
         self.open_notes_button.setEnabled(False)
         self.open_notes_button.clicked.connect(self._emit_open_notes)
         actions.addWidget(self.open_notes_button)
+        self.review_button = QPushButton("Review transcript")
+        self.review_button.setEnabled(False)
+        self.review_button.clicked.connect(self._emit_review)
+        actions.addWidget(self.review_button)
         self.recover_button = QPushButton("Recover finalized audio")
         self.recover_button.setObjectName("primaryButton")
         self.recover_button.setEnabled(False)
@@ -100,10 +106,12 @@ class HistoryPage(QWidget):
         sessions: list[MeetingSession],
         recoverable_ids: frozenset[str],
         notes_ids: frozenset[str] = frozenset(),
+        transcript_ids: frozenset[str] = frozenset(),
     ) -> None:
         self._sessions = {session.session_id: session for session in sessions}
         self._recoverable_ids = recoverable_ids
         self._notes_ids = notes_ids
+        self._transcript_ids = transcript_ids
         self.session_list.clear()
         for session in sessions:
             updated = session.updated_at.astimezone().strftime("%Y-%m-%d %H:%M")
@@ -137,6 +145,8 @@ class HistoryPage(QWidget):
         self.open_folder_button.setEnabled(session is not None)
         has_notes = session is not None and session.session_id in self._notes_ids
         self.open_notes_button.setEnabled(has_notes)
+        has_transcript = session is not None and session.session_id in self._transcript_ids
+        self.review_button.setEnabled(has_transcript)
         can_recover = (
             session is not None
             and session.state is SessionState.INTERRUPTED
@@ -160,10 +170,14 @@ class HistoryPage(QWidget):
             self.selection_status.setText(
                 "This session is interrupted, but no finalized WAV chunks are available."
             )
-        elif has_notes:
+        elif has_notes and has_transcript:
             self.selection_status.setText(
-                "Structured Markdown meeting notes are ready to open and edit."
+                "Meeting notes are ready. Review speaker labels or transcript text in the app."
             )
+        elif has_notes:
+            self.selection_status.setText("Structured Markdown meeting notes are ready to open.")
+        elif has_transcript:
+            self.selection_status.setText("The transcript is ready for speaker and text review.")
         elif can_transcribe:
             self.selection_status.setText(
                 "Finalized audio is available for private offline transcription."
@@ -180,6 +194,11 @@ class HistoryPage(QWidget):
         session_id = self.selected_session_id()
         if session_id is not None and self.open_notes_button.isEnabled():
             self.open_notes_requested.emit(session_id)
+
+    def _emit_review(self) -> None:
+        session_id = self.selected_session_id()
+        if session_id is not None and self.review_button.isEnabled():
+            self.review_requested.emit(session_id)
 
     def _emit_recover(self) -> None:
         session_id = self.selected_session_id()

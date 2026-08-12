@@ -69,11 +69,20 @@ def test_history_opens_ready_markdown_notes(qtbot: QtBot) -> None:
     recorded = _interrupted_session().transition(SessionState.RECORDED)
     ready = recorded.transition(SessionState.PROCESSING).transition(SessionState.READY)
 
-    page.load_sessions([ready], frozenset(), frozenset({ready.session_id}))
+    page.load_sessions(
+        [ready],
+        frozenset(),
+        frozenset({ready.session_id}),
+        frozenset({ready.session_id}),
+    )
 
     assert page.open_notes_button.isEnabled()
-    assert "Markdown meeting notes" in page.selection_status.text()
+    assert "Meeting notes are ready" in page.selection_status.text()
     assert "notes ready" in page.session_list.item(0).text()
     with qtbot.waitSignal(page.open_notes_requested) as requested:
         qtbot.mouseClick(page.open_notes_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     assert requested.args == [ready.session_id]
+    assert page.review_button.isEnabled()
+    with qtbot.waitSignal(page.review_requested) as review_requested:
+        qtbot.mouseClick(page.review_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    assert review_requested.args == [ready.session_id]

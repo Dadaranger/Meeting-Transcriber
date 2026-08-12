@@ -1,5 +1,6 @@
 import json
 import wave
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -22,12 +23,18 @@ from meeting_transcriber.capture.devices import (
 from meeting_transcriber.capture.manifest import CaptureJournalState, CaptureManifest
 from meeting_transcriber.domain.session import MeetingSession, SessionState
 from meeting_transcriber.domain.transcript import (
+    TranscriptDocument,
     TranscriptionJob,
     TranscriptionJobState,
     TranscriptionProfile,
+    TranscriptSegment,
+    TranscriptSource,
+    TranscriptSpeaker,
 )
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
+from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.session_store import SessionStore
+from meeting_transcriber.storage.transcript_store import TranscriptStore
 from meeting_transcriber.ui.main_window import MainWindow
 
 
@@ -190,6 +197,30 @@ class FakeTranscriptionWorkflow:
             raise AssertionError("No fake transcription is running")
         self.sessions.transition_state(self.job.session_id, SessionState.READY)
         self.job = self.job.transition(TranscriptionJobState.COMPLETED)
+        transcript = TranscriptDocument.new(
+            self.job.session_id,
+            run_id=self.job.job_id,
+            language="en",
+            engine="fixture",
+            model="fixture",
+            profile=self.job.profile,
+            created_at=datetime.now(UTC),
+            speakers=(
+                TranscriptSpeaker("local", "You", TranscriptSource.MICROPHONE),
+                TranscriptSpeaker("remote", "Remote speakers", TranscriptSource.SYSTEM_AUDIO),
+            ),
+            segments=(
+                TranscriptSegment(
+                    "808a9df2-1435-41aa-b7a7-7ee09f00a138",
+                    0,
+                    1_000,
+                    "remote",
+                    "Project at less",
+                    TranscriptSource.SYSTEM_AUDIO,
+                ),
+            ),
+        )
+        TranscriptStore(self.sessions.store.root).save_transcript(transcript)
         MeetingNotesStore(self.sessions.store.root).save(
             self.job.session_id,
             self.job.job_id,
@@ -207,7 +238,7 @@ def test_main_window_exposes_home_and_diagnostics_pages(qtbot: QtBot, tmp_path: 
 
     assert window.isVisible()
     assert window.windowTitle() == "Meeting Transcriber"
-    assert window.pages.count() == 5
+    assert window.pages.count() == 6
     assert window.pages.currentWidget() is window.home_page
 
 
@@ -504,8 +535,32 @@ def test_history_launches_and_completes_offline_transcription(
     assert "Markdown meeting notes saved" in window.statusBar().currentMessage()
     qtbot.mouseClick(window.history_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     assert window.history_page.open_notes_button.isEnabled()
+    assert window.history_page.review_button.isEnabled()
     qtbot.mouseClick(  # type: ignore[no-untyped-call]
         window.history_page.open_notes_button,
         Qt.MouseButton.LeftButton,
     )
     assert opened == [tmp_path / session_id / "meeting-notes.md"]
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.history_page.review_button,
+        Qt.MouseButton.LeftButton,
+    )
+    assert window.pages.currentWidget() is window.review_page
+    window.review_page.speaker_combo.setCurrentIndex(1)
+    window.review_page.speaker_name_input.setText("Morgan")
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.review_page.save_speaker_button,
+        Qt.MouseButton.LeftButton,
+    )
+    window.review_page.segment_text_edit.setPlainText("Project Atlas")
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.review_page.save_segment_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    review = ReviewStore(tmp_path).load(session_id)
+    markdown = MeetingNotesStore(tmp_path).notes_file(session_id).read_text(encoding="utf-8")
+    assert review.revision == 2
+    assert "Morgan" in markdown
+    assert "Project Atlas" in markdown
