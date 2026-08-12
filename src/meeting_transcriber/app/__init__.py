@@ -14,12 +14,18 @@ from meeting_transcriber.app.recording_service import (
 )
 from meeting_transcriber.app.session_service import MeetingSessionService, SessionRecoveryError
 from meeting_transcriber.app.storage_health import DiskSpaceChecker, DiskSpaceStatus, StorageHealth
+from meeting_transcriber.app.transcription_service import (
+    MeetingTranscriptionService,
+    TranscriptionWorkflow,
+    TranscriptionWorkflowError,
+)
 
 __all__ = [
     "DiskSpaceChecker",
     "DiskSpaceStatus",
     "MeetingRecordingService",
     "MeetingSessionService",
+    "MeetingTranscriptionService",
     "RecordingConsentRequired",
     "RecordingDeviceUnavailable",
     "RecordingLevels",
@@ -31,4 +37,6 @@ __all__ = [
     "RecordingWorkflowError",
     "SessionRecoveryError",
     "StorageHealth",
+    "TranscriptionWorkflow",
+    "TranscriptionWorkflowError",
 ]

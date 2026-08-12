@@ -3,6 +3,7 @@ from __future__ import annotations
 import platform
 import sys
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal, qVersion
@@ -32,6 +33,11 @@ from meeting_transcriber.app.session_service import (
     SessionRecoveryError,
 )
 from meeting_transcriber.app.storage_health import StorageHealth
+from meeting_transcriber.app.transcription_service import (
+    MeetingTranscriptionService,
+    TranscriptionWorkflow,
+    TranscriptionWorkflowError,
+)
 from meeting_transcriber.capture.devices import (
     AudioDeviceCatalog,
     AudioDeviceDiscovery,
@@ -42,10 +48,16 @@ from meeting_transcriber.capture.windows_pyaudio import (
     PyAudioWPatchStreamFactory,
 )
 from meeting_transcriber.domain.session import SessionState
-from meeting_transcriber.infrastructure.paths import default_meetings_directory
+from meeting_transcriber.domain.transcript import TranscriptionJobState, TranscriptionProfile
+from meeting_transcriber.infrastructure.paths import (
+    default_meetings_directory,
+    default_models_directory,
+)
 from meeting_transcriber.storage.session_store import SessionStore
+from meeting_transcriber.storage.transcript_store import TranscriptStore
 from meeting_transcriber.ui.history_page import HistoryPage
 from meeting_transcriber.ui.recording_page import RecordingPage
+from meeting_transcriber.ui.transcription_page import TranscriptionPage
 
 APP_STYLE = """
 QWidget {
@@ -375,6 +387,7 @@ class MainWindow(QMainWindow):
         audio_backend: AudioDeviceDiscovery | None = None,
         recording_service: RecordingWorkflow | None = None,
         folder_opener: Callable[[Path], bool] | None = None,
+        transcription_service: TranscriptionWorkflow | None = None,
     ):
         super().__init__()
         self.session_service = session_service or MeetingSessionService(
@@ -388,6 +401,12 @@ class MainWindow(QMainWindow):
             self.audio_backend,
             PyAudioWPatchStreamFactory(),
         )
+        self.transcription_service = transcription_service or MeetingTranscriptionService(
+            self.session_service,
+            TranscriptStore(self.session_service.store.root),
+            default_models_directory(),
+        )
+        recovered_transcriptions = self.transcription_service.recover_interrupted_jobs()
         self.setWindowTitle("Meeting Transcriber")
         self.setMinimumSize(960, 640)
         self.resize(1120, 720)
@@ -406,6 +425,7 @@ class MainWindow(QMainWindow):
         self.history_page.refresh_requested.connect(self._refresh_history)
         self.history_page.open_folder_requested.connect(self._open_session_folder)
         self.history_page.recover_requested.connect(self._recover_session)
+        self.history_page.transcribe_requested.connect(self._open_transcription)
         self.pages.addWidget(self.history_page)
         self.recording_page = RecordingPage()
         self.recording_page.begin_requested.connect(self._begin_recording)
@@ -416,6 +436,11 @@ class MainWindow(QMainWindow):
         self.recording_page.stop_requested.connect(self._stop_recording)
         self.recording_page.back_requested.connect(self._show_home)
         self.pages.addWidget(self.recording_page)
+        self.transcription_page = TranscriptionPage()
+        self.transcription_page.start_requested.connect(self._start_transcription)
+        self.transcription_page.cancel_requested.connect(self._cancel_transcription)
+        self.transcription_page.back_requested.connect(self._show_history)
+        self.pages.addWidget(self.transcription_page)
         self.diagnostics_page = DiagnosticsPage(self.audio_backend)
         self.pages.addWidget(self.diagnostics_page)
 
@@ -424,9 +449,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(shell)
 
         status = QStatusBar()
-        if abandoned_sessions:
+        if abandoned_sessions or recovered_transcriptions:
             status.showMessage(
-                f"Recovered {len(abandoned_sessions)} interrupted recording state(s)"
+                f"Recovered {len(abandoned_sessions)} recording and "
+                f"{len(recovered_transcriptions)} transcription state(s)"
             )
         else:
             status.showMessage("Ready - local processing by default")
@@ -445,6 +471,9 @@ class MainWindow(QMainWindow):
         self.storage_timer.setInterval(5_000)
         self.storage_timer.timeout.connect(self._refresh_storage_status)
         self._last_storage_health: StorageHealth | None = None
+        self.transcription_timer = QTimer(self)
+        self.transcription_timer.setInterval(250)
+        self.transcription_timer.timeout.connect(self._poll_transcription)
 
     def _create_draft(self) -> None:
         title, accepted = QInputDialog.getText(
@@ -604,12 +633,87 @@ class MainWindow(QMainWindow):
             self.home_button.setChecked(True)
 
     def _show_history(self) -> None:
-        if self.recording_service.is_recording:
+        if self.recording_service.is_recording or self.transcription_service.is_processing:
             return
         self.storage_timer.stop()
         self._refresh_history()
         self.pages.setCurrentWidget(self.history_page)
         self.history_button.setChecked(True)
+
+    def _open_transcription(self, session_id: str) -> None:
+        if self.recording_service.is_recording or self.transcription_service.is_processing:
+            return
+        session = self.session_service.get_session(session_id)
+        self.transcription_page.load_session(
+            session,
+            self.transcription_service.job_for(session_id),
+        )
+        self.pages.setCurrentWidget(self.transcription_page)
+        self.history_button.setChecked(False)
+        self.statusBar().showMessage(f"Configure offline transcription - {session.title}")
+
+    def _start_transcription(
+        self,
+        session_id: str,
+        profile_value: str,
+        language: str,
+        hotwords: str,
+        allow_download: bool,
+    ) -> None:
+        try:
+            profile = TranscriptionProfile(profile_value)
+            job = self.transcription_service.start(
+                session_id,
+                profile=profile,
+                language=language or None,
+                hotwords=hotwords or None,
+                allow_download=allow_download,
+            )
+        except (TranscriptionWorkflowError, ValueError) as error:
+            self.statusBar().showMessage(f"Transcription did not start - {error}")
+            QMessageBox.warning(self, "Transcription could not start", str(error))
+            return
+        self.transcription_page.reset_cancel_control()
+        self.transcription_page.show_job(job)
+        self.transcription_timer.start()
+        self._set_navigation_enabled(False)
+        self.statusBar().showMessage("Offline transcription started")
+
+    def _cancel_transcription(self) -> None:
+        try:
+            self.transcription_service.cancel()
+        except TranscriptionWorkflowError as error:
+            QMessageBox.warning(self, "Transcription could not cancel", str(error))
+            return
+        self.transcription_page.set_cancelling()
+        self.statusBar().showMessage("Transcription cancellation requested")
+
+    def _poll_transcription(self) -> None:
+        job = self.transcription_service.current_job()
+        if job is None:
+            return
+        self.transcription_page.show_job(job)
+        if job.state in {
+            TranscriptionJobState.PENDING,
+            TranscriptionJobState.PREPARING,
+            TranscriptionJobState.TRANSCRIBING,
+        }:
+            return
+        self.transcription_timer.stop()
+        self._set_navigation_enabled(True)
+        self._refresh_history()
+        if job.state is TranscriptionJobState.COMPLETED:
+            self.statusBar().showMessage("Offline transcript saved locally", 10_000)
+            QMessageBox.information(
+                self,
+                "Transcription complete",
+                "The timestamped transcript was saved as transcript.json in the meeting folder.",
+            )
+        elif job.state is TranscriptionJobState.CANCELLED:
+            self.statusBar().showMessage("Transcription cancelled; recording preserved", 10_000)
+        else:
+            self.statusBar().showMessage(f"Transcription failed - {job.error}")
+            QMessageBox.warning(self, "Transcription failed", job.error or "Unknown error")
 
     def _refresh_history(self) -> None:
         sessions = self.session_service.recent_sessions()
@@ -675,6 +779,22 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.recording_service.is_preflighting:
             self._stop_preflight()
+        if self.transcription_service.is_processing:
+            answer = QMessageBox.question(
+                self,
+                "Cancel transcription and close?",
+                "Transcription is still running. Request cancellation and close the app? "
+                "The recording and completed preparation files will remain recoverable.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer is QMessageBox.StandardButton.No:
+                event.ignore()
+                return
+            with suppress(TranscriptionWorkflowError):
+                self.transcription_service.cancel()
+            event.accept()
+            return
         if not self.recording_service.is_recording:
             super().closeEvent(event)
             return

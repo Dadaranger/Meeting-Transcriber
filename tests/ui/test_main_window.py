@@ -21,6 +21,11 @@ from meeting_transcriber.capture.devices import (
 )
 from meeting_transcriber.capture.manifest import CaptureJournalState, CaptureManifest
 from meeting_transcriber.domain.session import MeetingSession, SessionState
+from meeting_transcriber.domain.transcript import (
+    TranscriptionJob,
+    TranscriptionJobState,
+    TranscriptionProfile,
+)
 from meeting_transcriber.storage.session_store import SessionStore
 from meeting_transcriber.ui.main_window import MainWindow
 
@@ -133,6 +138,60 @@ class FakeRecordingWorkflow:
         return self.sessions.transition_state(session.session_id, SessionState.RECORDING)
 
 
+class FakeTranscriptionWorkflow:
+    def __init__(self, sessions: MeetingSessionService):
+        self.sessions = sessions
+        self.job: TranscriptionJob | None = None
+        self._processing: bool = False
+
+    @property
+    def is_processing(self) -> bool:
+        return self._processing
+
+    def recover_interrupted_jobs(self) -> list[TranscriptionJob]:
+        return []
+
+    def job_for(self, session_id: str) -> TranscriptionJob | None:
+        if self.job is not None and self.job.session_id == session_id:
+            return self.job
+        return None
+
+    def current_job(self) -> TranscriptionJob | None:
+        return self.job
+
+    def start(
+        self,
+        session_id: str,
+        *,
+        profile: TranscriptionProfile,
+        language: str | None,
+        hotwords: str | None,
+        allow_download: bool,
+    ) -> TranscriptionJob:
+        del hotwords, allow_download
+        job = TranscriptionJob.new(session_id, profile=profile, language=language)
+        job = job.transition(TranscriptionJobState.PREPARING)
+        job = job.with_progress(0, 2_000)
+        self.job = job.transition(TranscriptionJobState.TRANSCRIBING)
+        self.sessions.transition_state(session_id, SessionState.PROCESSING)
+        self._processing = True
+        return self.job
+
+    def cancel(self) -> None:
+        if self.job is None:
+            raise AssertionError("No fake transcription is running")
+        self.job = self.job.transition(TranscriptionJobState.CANCELLED)
+        self.sessions.transition_state(self.job.session_id, SessionState.RECORDED)
+        self._processing = False
+
+    def complete(self) -> None:
+        if self.job is None:
+            raise AssertionError("No fake transcription is running")
+        self.sessions.transition_state(self.job.session_id, SessionState.READY)
+        self.job = self.job.transition(TranscriptionJobState.COMPLETED)
+        self._processing = False
+
+
 def test_main_window_exposes_home_and_diagnostics_pages(qtbot: QtBot, tmp_path: Path) -> None:
     service = MeetingSessionService(SessionStore(tmp_path))
     window = MainWindow(service)
@@ -142,7 +201,7 @@ def test_main_window_exposes_home_and_diagnostics_pages(qtbot: QtBot, tmp_path: 
 
     assert window.isVisible()
     assert window.windowTitle() == "Meeting Transcriber"
-    assert window.pages.count() == 4
+    assert window.pages.count() == 5
     assert window.pages.currentWidget() is window.home_page
 
 
@@ -379,3 +438,54 @@ def test_history_recovers_audio_and_opens_session_folder(
 
     assert service.get_session(draft.session_id).state is SessionState.RECORDED
     assert not window.history_page.recover_button.isEnabled()
+
+
+def test_history_launches_and_completes_offline_transcription(
+    qtbot: QtBot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sessions = MeetingSessionService(SessionStore(tmp_path))
+    session_id = sessions.create_draft("Transcript me").session_id
+    sessions.confirm_recording_consent(session_id)
+    sessions.transition_state(session_id, SessionState.RECORDING)
+    sessions.transition_state(session_id, SessionState.RECORDED)
+    recording = FakeRecordingWorkflow(sessions)
+    transcription = FakeTranscriptionWorkflow(sessions)
+    window = MainWindow(
+        sessions,
+        FakeAudioDiscovery(),
+        recording,
+        transcription_service=transcription,
+    )
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Ok,
+    )
+
+    qtbot.mouseClick(window.history_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.history_page.transcribe_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert window.pages.currentWidget() is window.transcription_page
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.transcription_page.start_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert transcription.is_processing
+    assert sessions.get_session(session_id).state is SessionState.PROCESSING
+    assert not window.transcription_page.progress_card.isHidden()
+    assert not window.home_button.isEnabled()
+
+    transcription.complete()
+    window._poll_transcription()
+
+    assert sessions.get_session(session_id).state is SessionState.READY
+    assert window.transcription_page.start_button.text() == "Transcribe again"
+    assert window.home_button.isEnabled()
+    assert "saved locally" in window.statusBar().currentMessage()

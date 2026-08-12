@@ -27,6 +27,7 @@ class HistoryPage(QWidget):
     refresh_requested = Signal()
     open_folder_requested = Signal(str)
     recover_requested = Signal(str)
+    transcribe_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -79,6 +80,11 @@ class HistoryPage(QWidget):
         self.recover_button.setEnabled(False)
         self.recover_button.clicked.connect(self._emit_recover)
         actions.addWidget(self.recover_button)
+        self.transcribe_button = QPushButton("Transcribe offline")
+        self.transcribe_button.setObjectName("primaryButton")
+        self.transcribe_button.setEnabled(False)
+        self.transcribe_button.clicked.connect(self._emit_transcribe)
+        actions.addWidget(self.transcribe_button)
         card_layout.addLayout(actions)
         root.addWidget(card)
         root.addStretch()
@@ -122,6 +128,12 @@ class HistoryPage(QWidget):
             and session.session_id in self._recoverable_ids
         )
         self.recover_button.setEnabled(can_recover)
+        can_transcribe = session is not None and session.state in {
+            SessionState.RECORDED,
+            SessionState.READY,
+            SessionState.EXPORTED,
+        }
+        self.transcribe_button.setEnabled(can_transcribe)
         if session is None:
             self.selection_status.setText("Select a meeting session.")
         elif can_recover:
@@ -132,6 +144,10 @@ class HistoryPage(QWidget):
         elif session.state is SessionState.INTERRUPTED:
             self.selection_status.setText(
                 "This session is interrupted, but no finalized WAV chunks are available."
+            )
+        elif can_transcribe:
+            self.selection_status.setText(
+                "Finalized audio is available for private offline transcription."
             )
         else:
             self.selection_status.setText(f"Session state: {session.state.value}.")
@@ -145,3 +161,8 @@ class HistoryPage(QWidget):
         session_id = self.selected_session_id()
         if session_id is not None and self.recover_button.isEnabled():
             self.recover_requested.emit(session_id)
+
+    def _emit_transcribe(self) -> None:
+        session_id = self.selected_session_id()
+        if session_id is not None and self.transcribe_button.isEnabled():
+            self.transcribe_requested.emit(session_id)

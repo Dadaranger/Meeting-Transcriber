@@ -47,3 +47,17 @@ def test_history_emits_open_folder_for_selected_session(qtbot: QtBot) -> None:
         qtbot.mouseClick(page.open_folder_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
 
     assert opened.args == [session.session_id]
+
+
+def test_history_offers_offline_transcription_for_recorded_audio(qtbot: QtBot) -> None:
+    page = HistoryPage()
+    qtbot.addWidget(page)
+    recorded = _interrupted_session().transition(SessionState.RECORDED)
+
+    page.load_sessions([recorded], frozenset())
+
+    assert page.transcribe_button.isEnabled()
+    assert "offline transcription" in page.selection_status.text()
+    with qtbot.waitSignal(page.transcribe_requested) as requested:
+        qtbot.mouseClick(page.transcribe_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    assert requested.args == [recorded.session_id]

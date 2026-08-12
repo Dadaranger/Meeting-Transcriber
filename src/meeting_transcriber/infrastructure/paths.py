@@ -8,3 +8,12 @@ def default_meetings_directory() -> Path:
     if not documents:
         documents = str(Path.home() / "Documents")
     return Path(documents) / "Meeting Transcriber" / "Meetings"
+
+
+def default_models_directory() -> Path:
+    application_data = QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.AppLocalDataLocation
+    )
+    if not application_data:
+        application_data = str(Path.home() / ".meeting-transcriber")
+    return Path(application_data) / "models"
