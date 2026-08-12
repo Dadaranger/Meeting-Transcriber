@@ -53,6 +53,7 @@ from meeting_transcriber.infrastructure.paths import (
     default_meetings_directory,
     default_models_directory,
 )
+from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.session_store import SessionStore
 from meeting_transcriber.storage.transcript_store import TranscriptStore
 from meeting_transcriber.ui.history_page import HistoryPage
@@ -395,6 +396,7 @@ class MainWindow(QMainWindow):
         )
         self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
         self.folder_opener = folder_opener or open_local_folder
+        self.notes_store = MeetingNotesStore(self.session_service.store.root)
         abandoned_sessions = self.session_service.recover_abandoned_recordings()
         self.recording_service = recording_service or MeetingRecordingService(
             self.session_service,
@@ -424,6 +426,7 @@ class MainWindow(QMainWindow):
         self.history_page = HistoryPage()
         self.history_page.refresh_requested.connect(self._refresh_history)
         self.history_page.open_folder_requested.connect(self._open_session_folder)
+        self.history_page.open_notes_requested.connect(self._open_meeting_notes)
         self.history_page.recover_requested.connect(self._recover_session)
         self.history_page.transcribe_requested.connect(self._open_transcription)
         self.pages.addWidget(self.history_page)
@@ -703,11 +706,12 @@ class MainWindow(QMainWindow):
         self._set_navigation_enabled(True)
         self._refresh_history()
         if job.state is TranscriptionJobState.COMPLETED:
-            self.statusBar().showMessage("Offline transcript saved locally", 10_000)
+            self.statusBar().showMessage("Transcript and Markdown meeting notes saved", 10_000)
             QMessageBox.information(
                 self,
                 "Transcription complete",
-                "The timestamped transcript was saved as transcript.json in the meeting folder.",
+                "The editable meeting-notes.md and timestamped transcript.json were saved "
+                "in the meeting folder.",
             )
         elif job.state is TranscriptionJobState.CANCELLED:
             self.statusBar().showMessage("Transcription cancelled; recording preserved", 10_000)
@@ -722,7 +726,12 @@ class MainWindow(QMainWindow):
             for session in sessions
             if self.session_service.has_recoverable_audio(session.session_id)
         )
-        self.history_page.load_sessions(sessions, recoverable_ids)
+        notes_ids = frozenset(
+            session.session_id
+            for session in sessions
+            if self.notes_store.notes_file(session.session_id).is_file()
+        )
+        self.history_page.load_sessions(sessions, recoverable_ids, notes_ids)
 
     def _open_session_folder(self, session_id: str) -> None:
         directory = self.session_service.session_directory(session_id)
@@ -734,6 +743,18 @@ class MainWindow(QMainWindow):
             self,
             "Meeting folder could not be opened",
             f"Open this folder manually:\n{directory}",
+        )
+
+    def _open_meeting_notes(self, session_id: str) -> None:
+        notes_path = self.notes_store.notes_file(session_id)
+        if notes_path.is_file() and self.folder_opener(notes_path):
+            self.statusBar().showMessage(f"Opened meeting notes - {notes_path}", 8_000)
+            return
+        self.statusBar().showMessage(f"Could not open meeting notes - {notes_path}")
+        QMessageBox.warning(
+            self,
+            "Meeting notes could not be opened",
+            f"Open this file manually:\n{notes_path}",
         )
 
     def _recover_session(self, session_id: str) -> None:

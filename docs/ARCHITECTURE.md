@@ -182,8 +182,12 @@ Meetings/
     derived/
       microphone_normalized.wav
       system_normalized.wav
+      transcripts/
+        <run-id>.json
+      meeting-notes/
+        <run-id>.md
     transcript.json
-    meeting.md
+    meeting-notes.md
     logs/
       processing.log
 ```

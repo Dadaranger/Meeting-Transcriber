@@ -107,6 +107,12 @@ external service.
 - Re-running with another language/model creates a new processing result.
 - CPU-only processing is supported and progress remains responsive.
 
+**Current implementation status:** local model profiles, explicit download
+permission, word timestamps, dual-source timeline merge, persisted progress,
+cancellation, retry, and interrupted-job recovery are implemented. The remaining
+release evidence is deterministic real-model fixture coverage plus target-hardware
+CPU/CUDA benchmarking.
+
 ## Milestone 5 — Speaker attribution and review
 
 **Outcome:** the transcript distinguishes local and remote speech and can be
@@ -145,6 +151,11 @@ corrected by the user.
 - JSON validates against its schema.
 - Export works without diarization or an AI summary provider.
 - Existing user edits are preserved during re-export.
+
+**Current implementation status:** versioned JSON, deterministic baseline Markdown,
+retained rendered runs, automatic post-transcription export, and the History open
+action are implemented. Editable structured sections and preservation of reviewed
+user corrections remain planned.
 
 ## Milestone 7 — Desktop release hardening
 

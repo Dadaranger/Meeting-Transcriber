@@ -53,11 +53,16 @@ preserves the recording and prepared audio, and interrupted jobs become retryabl
 the next startup. The canonical versioned result is `transcript.json`, with prior
 runs retained under `derived/transcripts/`.
 
+Each successful transcription also creates an editable `meeting-notes.md` with
+meeting metadata, participant/source labels, timestamps, and the complete
+conversation. History marks sessions whose notes are ready and can open the file
+directly. Prior rendered runs are retained under `derived/meeting-notes/`.
+
 Automated checks exercise forced process termination, a simulated 60-minute
 dual-source journal, persisted transcription recovery, and deterministic accuracy
 metrics. A real 60-minute hardware soak and representative accuracy samples are
-still required before a release. Human-readable Markdown export and speaker review
-are the next product milestones.
+still required before a release. Baseline Markdown export is implemented; speaker
+correction and editable summary/action sections remain active product milestones.
 
 ## Run the development application
 

@@ -26,6 +26,7 @@ from meeting_transcriber.domain.transcript import (
     TranscriptionJobState,
     TranscriptionProfile,
 )
+from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.session_store import SessionStore
 from meeting_transcriber.ui.main_window import MainWindow
 
@@ -189,6 +190,11 @@ class FakeTranscriptionWorkflow:
             raise AssertionError("No fake transcription is running")
         self.sessions.transition_state(self.job.session_id, SessionState.READY)
         self.job = self.job.transition(TranscriptionJobState.COMPLETED)
+        MeetingNotesStore(self.sessions.store.root).save(
+            self.job.session_id,
+            self.job.job_id,
+            "# Fake meeting notes\n",
+        )
         self._processing = False
 
 
@@ -452,10 +458,17 @@ def test_history_launches_and_completes_offline_transcription(
     sessions.transition_state(session_id, SessionState.RECORDED)
     recording = FakeRecordingWorkflow(sessions)
     transcription = FakeTranscriptionWorkflow(sessions)
+    opened: list[Path] = []
+
+    def fake_open_path(path: Path) -> bool:
+        opened.append(path)
+        return True
+
     window = MainWindow(
         sessions,
         FakeAudioDiscovery(),
         recording,
+        folder_opener=fake_open_path,
         transcription_service=transcription,
     )
     qtbot.addWidget(window)
@@ -488,4 +501,11 @@ def test_history_launches_and_completes_offline_transcription(
     assert sessions.get_session(session_id).state is SessionState.READY
     assert window.transcription_page.start_button.text() == "Transcribe again"
     assert window.home_button.isEnabled()
-    assert "saved locally" in window.statusBar().currentMessage()
+    assert "Markdown meeting notes saved" in window.statusBar().currentMessage()
+    qtbot.mouseClick(window.history_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    assert window.history_page.open_notes_button.isEnabled()
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.history_page.open_notes_button,
+        Qt.MouseButton.LeftButton,
+    )
+    assert opened == [tmp_path / session_id / "meeting-notes.md"]

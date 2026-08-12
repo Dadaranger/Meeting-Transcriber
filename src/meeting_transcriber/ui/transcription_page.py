@@ -196,7 +196,7 @@ class TranscriptionPage(QWidget):
         self.setup_card.show()
         if job.state is TranscriptionJobState.COMPLETED:
             self.previous_status.setText(
-                "Transcript complete. Open the meeting folder to inspect transcript.json."
+                "Transcript complete. Open meeting-notes.md from History to review or edit it."
             )
             self.start_button.setText("Transcribe again")
         else:
