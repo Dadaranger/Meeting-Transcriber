@@ -30,6 +30,11 @@ def test_transcription_setup_emits_explicit_profile_language_and_download_choice
     page.language_combo.setCurrentIndex(page.language_combo.findData("en"))
     page.hotwords_input.setText("Akato, WASAPI")
     page.allow_download_checkbox.setChecked(True)
+    page.separate_remote_speakers_checkbox.setChecked(True)
+    page.min_remote_speakers.setValue(2)
+    page.max_remote_speakers.setValue(4)
+    page.allow_diarization_download_checkbox.setChecked(True)
+    page.diarization_token_input.setText("temporary-token")
 
     assert "large-v3" in page.profile_description.text()
     with qtbot.waitSignal(page.start_requested) as started:
@@ -41,7 +46,13 @@ def test_transcription_setup_emits_explicit_profile_language_and_download_choice
         "en",
         "Akato, WASAPI",
         True,
+        True,
+        2,
+        4,
+        True,
+        "temporary-token",
     ]
+    assert page.diarization_token_input.text() == ""
 
 
 def test_transcription_page_shows_progress_and_retryable_failure(qtbot: QtBot) -> None:
@@ -68,3 +79,39 @@ def test_transcription_page_shows_progress_and_retryable_failure(qtbot: QtBot) -
     assert page.progress_card.isHidden()
     assert page.start_button.text() == "Retry offline transcription"
     assert "Model unavailable" in page.previous_status.text()
+
+
+def test_transcription_page_shows_indeterminate_diarization_and_fallback_warning(
+    qtbot: QtBot,
+) -> None:
+    page = TranscriptionPage()
+    qtbot.addWidget(page)
+    session = _recorded_session()
+    job = TranscriptionJob.new(
+        session.session_id,
+        separate_remote_speakers=True,
+        min_remote_speakers=1,
+        max_remote_speakers=3,
+    )
+    job = job.transition(TranscriptionJobState.PREPARING)
+    job = job.with_progress(2_000, 2_000)
+    job = job.transition(TranscriptionJobState.TRANSCRIBING)
+    job = job.transition(TranscriptionJobState.DIARIZING)
+
+    page.load_session(session, job)
+    page.show_job(job)
+
+    assert page.progress_bar.minimum() == 0
+    assert page.progress_bar.maximum() == 0
+    assert "Separating remote speakers" in page.progress_title.text()
+    assert page.separate_remote_speakers_checkbox.isChecked()
+    assert page.min_remote_speakers.value() == 1
+    assert page.max_remote_speakers.value() == 3
+
+    completed = job.with_warning("Remote-speaker model is unavailable").transition(
+        TranscriptionJobState.COMPLETED
+    )
+    page.show_job(completed)
+
+    assert page.progress_bar.maximum() == 100
+    assert "model is unavailable" in page.previous_status.text()

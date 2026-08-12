@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -32,7 +33,7 @@ def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> 
 
 
 class TranscriptionPage(QWidget):
-    start_requested = Signal(str, str, str, str, bool)
+    start_requested = Signal(str, str, str, str, bool, bool, int, int, bool, str)
     cancel_requested = Signal()
     back_requested = Signal()
 
@@ -106,6 +107,57 @@ class TranscriptionPage(QWidget):
         )
         self.allow_download_checkbox.setAccessibleName("Allow speech model download")
         setup_layout.addWidget(self.allow_download_checkbox)
+
+        self.separate_remote_speakers_checkbox = QCheckBox(
+            "Separate individual voices in system audio (optional; slower)"
+        )
+        self.separate_remote_speakers_checkbox.setAccessibleName(
+            "Separate individual remote speakers"
+        )
+        self.separate_remote_speakers_checkbox.toggled.connect(self._update_diarization_controls)
+        setup_layout.addWidget(self.separate_remote_speakers_checkbox)
+        self.diarization_description = _label(
+            "Uses pyannote Community-1 locally after a one-time gated model download. "
+            '<a href="https://huggingface.co/pyannote/speaker-diarization-community-1">'
+            "Accept the model terms on Hugging Face</a>, then enter a temporary read token below.",
+            "muted",
+            wrap=True,
+        )
+        self.diarization_description.setOpenExternalLinks(True)
+        setup_layout.addWidget(self.diarization_description)
+
+        speaker_limits = QHBoxLayout()
+        speaker_limits.addWidget(_label("Remote speakers", "muted"))
+        speaker_limits.addStretch()
+        speaker_limits.addWidget(_label("Minimum", "muted"))
+        self.min_remote_speakers = QSpinBox()
+        self.min_remote_speakers.setRange(0, 20)
+        self.min_remote_speakers.setSpecialValueText("Auto")
+        self.min_remote_speakers.setAccessibleName("Minimum remote speaker count")
+        speaker_limits.addWidget(self.min_remote_speakers)
+        speaker_limits.addWidget(_label("Maximum", "muted"))
+        self.max_remote_speakers = QSpinBox()
+        self.max_remote_speakers.setRange(0, 20)
+        self.max_remote_speakers.setSpecialValueText("Auto")
+        self.max_remote_speakers.setAccessibleName("Maximum remote speaker count")
+        speaker_limits.addWidget(self.max_remote_speakers)
+        setup_layout.addLayout(speaker_limits)
+
+        self.allow_diarization_download_checkbox = QCheckBox(
+            "Allow this run to download the remote-speaker model if it is not cached"
+        )
+        self.allow_diarization_download_checkbox.setAccessibleName(
+            "Allow remote speaker model download"
+        )
+        self.allow_diarization_download_checkbox.toggled.connect(self._update_diarization_controls)
+        setup_layout.addWidget(self.allow_diarization_download_checkbox)
+        self.diarization_token_input = QLineEdit()
+        self.diarization_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.diarization_token_input.setPlaceholderText(
+            "Temporary Hugging Face read token (used for this run only)"
+        )
+        self.diarization_token_input.setAccessibleName("Temporary Hugging Face access token")
+        setup_layout.addWidget(self.diarization_token_input)
         self.previous_status = _label("", "muted", wrap=True)
         setup_layout.addWidget(self.previous_status)
 
@@ -146,6 +198,7 @@ class TranscriptionPage(QWidget):
         root.addWidget(self.progress_card)
         root.addStretch()
         self._update_profile_description()
+        self._update_diarization_controls()
 
     def load_session(self, session: MeetingSession, job: TranscriptionJob | None = None) -> None:
         self._session_id = session.session_id
@@ -154,6 +207,7 @@ class TranscriptionPage(QWidget):
         self.progress_card.hide()
         self.start_button.setText("Start offline transcription")
         self.previous_status.setText("")
+        self.diarization_token_input.clear()
         if job is not None:
             self.profile_combo.setCurrentIndex(
                 max(0, self.profile_combo.findData(job.profile.value))
@@ -164,39 +218,63 @@ class TranscriptionPage(QWidget):
                     self.language_combo.setCurrentIndex(language_index)
                 else:
                     self.language_combo.setEditText(job.language)
+            self.separate_remote_speakers_checkbox.setChecked(job.separate_remote_speakers)
+            self.min_remote_speakers.setValue(job.min_remote_speakers or 0)
+            self.max_remote_speakers.setValue(job.max_remote_speakers or 0)
             if job.state in {TranscriptionJobState.FAILED, TranscriptionJobState.CANCELLED}:
                 self.start_button.setText("Retry offline transcription")
                 self.previous_status.setText(
                     job.error
                     or "The previous transcription was cancelled. Prepared audio is reusable."
                 )
+            elif job.state is TranscriptionJobState.COMPLETED and job.warning:
+                self.previous_status.setText(job.warning)
+        else:
+            self.separate_remote_speakers_checkbox.setChecked(False)
+            self.min_remote_speakers.setValue(0)
+            self.max_remote_speakers.setValue(0)
+        self.allow_diarization_download_checkbox.setChecked(False)
+        self._update_diarization_controls()
 
     def show_job(self, job: TranscriptionJob) -> None:
         if job.state in {
             TranscriptionJobState.PENDING,
             TranscriptionJobState.PREPARING,
             TranscriptionJobState.TRANSCRIBING,
+            TranscriptionJobState.DIARIZING,
         }:
             self.setup_card.hide()
             self.progress_card.show()
-            self.progress_bar.setValue(round(job.progress * 100))
-            if job.state is TranscriptionJobState.TRANSCRIBING:
+            if job.state is TranscriptionJobState.DIARIZING:
+                self.progress_bar.setRange(0, 0)
+                self.progress_title.setText("Separating remote speakers locally")
+                self.progress_detail.setText(
+                    "Analyzing system audio. This optional stage can take longer than "
+                    "transcription and cancellation waits for a safe model boundary."
+                )
+            elif job.state is TranscriptionJobState.TRANSCRIBING:
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(round(job.progress * 100))
                 self.progress_title.setText("Transcribing locally")
                 self.progress_detail.setText(
                     f"Processed {job.processed_audio_ms / 1_000:.1f} of "
                     f"{job.total_audio_ms / 1_000:.1f} source-seconds."
                 )
             else:
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(round(job.progress * 100))
                 self.progress_title.setText("Preparing audio and model")
                 self.progress_detail.setText(
                     "Validating chunks and loading the selected local speech model."
                 )
             return
         self.progress_card.hide()
+        self.progress_bar.setRange(0, 100)
         self.setup_card.show()
         if job.state is TranscriptionJobState.COMPLETED:
             self.previous_status.setText(
-                "Transcript complete. Open meeting-notes.md from History to review or edit it."
+                job.warning
+                or "Transcript complete. Open meeting-notes.md from History to review or edit it."
             )
             self.start_button.setText("Transcribe again")
         else:
@@ -233,14 +311,48 @@ class TranscriptionPage(QWidget):
             return selected
         return self.language_combo.currentText().strip()
 
+    def _update_diarization_controls(self, *_args: object) -> None:
+        enabled = self.separate_remote_speakers_checkbox.isChecked()
+        self.diarization_description.setEnabled(enabled)
+        self.min_remote_speakers.setEnabled(enabled)
+        self.max_remote_speakers.setEnabled(enabled)
+        self.allow_diarization_download_checkbox.setEnabled(enabled)
+        self.diarization_token_input.setEnabled(
+            enabled and self.allow_diarization_download_checkbox.isChecked()
+        )
+
     def _emit_start(self) -> None:
         profile = self.profile_combo.currentData()
         if self._session_id is None or not isinstance(profile, str):
             return
+        separate_remote_speakers = self.separate_remote_speakers_checkbox.isChecked()
+        min_remote_speakers = self.min_remote_speakers.value() if separate_remote_speakers else 0
+        max_remote_speakers = self.max_remote_speakers.value() if separate_remote_speakers else 0
+        if (
+            min_remote_speakers
+            and max_remote_speakers
+            and min_remote_speakers > max_remote_speakers
+        ):
+            self.previous_status.setText(
+                "Minimum remote speakers cannot be greater than the maximum."
+            )
+            return
+        allow_diarization_download = (
+            separate_remote_speakers and self.allow_diarization_download_checkbox.isChecked()
+        )
+        access_token = (
+            self.diarization_token_input.text().strip() if allow_diarization_download else ""
+        )
         self.start_requested.emit(
             self._session_id,
             profile,
             self._language(),
             self.hotwords_input.text().strip(),
             self.allow_download_checkbox.isChecked(),
+            separate_remote_speakers,
+            min_remote_speakers,
+            max_remote_speakers,
+            allow_diarization_download,
+            access_token,
         )
+        self.diarization_token_input.clear()

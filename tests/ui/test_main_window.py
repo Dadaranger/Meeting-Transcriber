@@ -151,6 +151,7 @@ class FakeTranscriptionWorkflow:
         self.sessions = sessions
         self.job: TranscriptionJob | None = None
         self._processing: bool = False
+        self.last_diarization_access_token: str | None = None
 
     @property
     def is_processing(self) -> bool:
@@ -181,7 +182,8 @@ class FakeTranscriptionWorkflow:
         diarization_allow_download: bool = False,
         diarization_access_token: str | None = None,
     ) -> TranscriptionJob:
-        del hotwords, allow_download, diarization_allow_download, diarization_access_token
+        del hotwords, allow_download, diarization_allow_download
+        self.last_diarization_access_token = diarization_access_token
         job = TranscriptionJob.new(
             session_id,
             profile=profile,
@@ -528,12 +530,23 @@ def test_history_launches_and_completes_offline_transcription(
     )
 
     assert window.pages.currentWidget() is window.transcription_page
+    window.transcription_page.separate_remote_speakers_checkbox.setChecked(True)
+    window.transcription_page.min_remote_speakers.setValue(2)
+    window.transcription_page.max_remote_speakers.setValue(4)
+    window.transcription_page.allow_diarization_download_checkbox.setChecked(True)
+    window.transcription_page.diarization_token_input.setText("temporary-token")
     qtbot.mouseClick(  # type: ignore[no-untyped-call]
         window.transcription_page.start_button,
         Qt.MouseButton.LeftButton,
     )
 
     assert transcription.is_processing
+    assert transcription.job is not None
+    assert transcription.job.separate_remote_speakers
+    assert transcription.job.min_remote_speakers == 2
+    assert transcription.job.max_remote_speakers == 4
+    assert transcription.last_diarization_access_token == "temporary-token"
+    assert window.transcription_page.diarization_token_input.text() == ""
     assert sessions.get_session(session_id).state is SessionState.PROCESSING
     assert not window.transcription_page.progress_card.isHidden()
     assert not window.home_button.isEnabled()

@@ -681,6 +681,11 @@ class MainWindow(QMainWindow):
         language: str,
         hotwords: str,
         allow_download: bool,
+        separate_remote_speakers: bool,
+        min_remote_speakers: int,
+        max_remote_speakers: int,
+        diarization_allow_download: bool,
+        diarization_access_token: str,
     ) -> None:
         try:
             profile = TranscriptionProfile(profile_value)
@@ -690,6 +695,11 @@ class MainWindow(QMainWindow):
                 language=language or None,
                 hotwords=hotwords or None,
                 allow_download=allow_download,
+                separate_remote_speakers=separate_remote_speakers,
+                min_remote_speakers=min_remote_speakers or None,
+                max_remote_speakers=max_remote_speakers or None,
+                diarization_allow_download=diarization_allow_download,
+                diarization_access_token=diarization_access_token or None,
             )
         except (TranscriptionWorkflowError, ValueError) as error:
             self.statusBar().showMessage(f"Transcription did not start - {error}")
@@ -719,18 +729,24 @@ class MainWindow(QMainWindow):
             TranscriptionJobState.PENDING,
             TranscriptionJobState.PREPARING,
             TranscriptionJobState.TRANSCRIBING,
+            TranscriptionJobState.DIARIZING,
         }:
             return
         self.transcription_timer.stop()
         self._set_navigation_enabled(True)
         self._refresh_history()
         if job.state is TranscriptionJobState.COMPLETED:
-            self.statusBar().showMessage("Transcript and Markdown meeting notes saved", 10_000)
+            status = "Transcript and Markdown meeting notes saved"
+            if job.warning:
+                status += "; remote-speaker separation was unavailable"
+            self.statusBar().showMessage(status, 10_000)
             QMessageBox.information(
                 self,
-                "Transcription complete",
+                "Transcription complete"
+                if not job.warning
+                else "Transcription complete with warning",
                 "The editable meeting-notes.md and timestamped transcript.json were saved "
-                "in the meeting folder.",
+                "in the meeting folder." + (f"\n\n{job.warning}" if job.warning else ""),
             )
         elif job.state is TranscriptionJobState.CANCELLED:
             self.statusBar().showMessage("Transcription cancelled; recording preserved", 10_000)
