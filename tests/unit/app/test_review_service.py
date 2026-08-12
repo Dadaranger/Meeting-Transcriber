@@ -72,21 +72,37 @@ def test_review_service_persists_edits_and_regenerates_markdown(tmp_path: Path) 
     renamed = service.rename_speaker(session_id, "remote", "Morgan")
     corrected = service.correct_segment(session_id, SEGMENT_ID, "Project Atlas")
     assigned = service.assign_segment(session_id, SEGMENT_ID, "remote-2")
+    structured = service.update_structured_notes(
+        session_id,
+        "Launch review",
+        "Ship Friday\n\nKeep processing local",
+        "Morgan: publish notes",
+    )
 
     assert renamed.review.revision == 1
     assert corrected.review.revision == 2
     assert assigned.review.revision == 3
-    assert assigned.reviewed_transcript.speakers[1].display_name == "Morgan"
-    assert assigned.reviewed_transcript.segments[0].text == "Project Atlas"
-    assert assigned.reviewed_transcript.segments[0].speaker_id == "remote-2"
+    assert structured.review.revision == 4
+    assert structured.reviewed_transcript.speakers[1].display_name == "Morgan"
+    assert structured.reviewed_transcript.segments[0].text == "Project Atlas"
+    assert structured.reviewed_transcript.segments[0].speaker_id == "remote-2"
+    assert structured.review.structured_notes is not None
+    assert structured.review.structured_notes.decisions == (
+        "Ship Friday",
+        "Keep processing local",
+    )
     assert reviews.revision_file(renamed.review).is_file()
     assert reviews.revision_file(corrected.review).is_file()
     assert reviews.revision_file(assigned.review).is_file()
+    assert reviews.revision_file(structured.review).is_file()
     markdown = notes.notes_file(session_id).read_text(encoding="utf-8")
     assert "Morgan" in markdown
     assert "Project Atlas" in markdown
     assert "Project at less" not in markdown
     assert "Remote speaker 2" in markdown
+    assert "## Summary\n\nLaunch review" in markdown
+    assert "- Ship Friday" in markdown
+    assert "- [ ] Morgan: publish notes" in markdown
 
 
 def test_review_service_rejects_missing_transcript_and_blank_correction(tmp_path: Path) -> None:

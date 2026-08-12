@@ -48,10 +48,27 @@ class SegmentSpeakerCorrection:
 
 
 @dataclass(frozen=True, slots=True)
+class StructuredNotesCorrection:
+    summary: str = ""
+    decisions: tuple[str, ...] = ()
+    action_items: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.summary != self.summary.strip():
+            raise ValueError("Reviewed summary must be normalized")
+        for field_name, items in (
+            ("decision", self.decisions),
+            ("action item", self.action_items),
+        ):
+            if any(not item or item != item.strip() for item in items):
+                raise ValueError(f"Each reviewed {field_name} must be non-blank and normalized")
+
+
+@dataclass(frozen=True, slots=True)
 class TranscriptReview:
     """Sparse, versioned user corrections for exactly one transcript run."""
 
-    SCHEMA_VERSION: ClassVar[int] = 2
+    SCHEMA_VERSION: ClassVar[int] = 3
 
     session_id: str
     run_id: str
@@ -60,6 +77,7 @@ class TranscriptReview:
     speaker_names: tuple[SpeakerNameCorrection, ...] = ()
     segment_texts: tuple[SegmentTextCorrection, ...] = ()
     segment_speakers: tuple[SegmentSpeakerCorrection, ...] = ()
+    structured_notes: StructuredNotesCorrection | None = None
 
     def __post_init__(self) -> None:
         UUID(self.session_id)
@@ -270,6 +288,30 @@ class TranscriptReview:
             segment_speakers=updated,
         )
 
+    def update_structured_notes(
+        self,
+        transcript: TranscriptDocument,
+        summary: str,
+        decisions: tuple[str, ...],
+        action_items: tuple[str, ...],
+        *,
+        at: datetime | None = None,
+    ) -> TranscriptReview:
+        self._validate_transcript(transcript)
+        updated = StructuredNotesCorrection(
+            summary.strip(),
+            tuple(item.strip() for item in decisions if item.strip()),
+            tuple(item.strip() for item in action_items if item.strip()),
+        )
+        if updated == self.structured_notes:
+            return self
+        return replace(
+            self,
+            revision=self.revision + 1,
+            updated_at=_timestamp(at),
+            structured_notes=updated,
+        )
+
     def migrate_speaker_names(
         self,
         transcript: TranscriptDocument,
@@ -287,9 +329,14 @@ class TranscriptReview:
             for correction in self.speaker_names
             if correction.speaker_id in known_speakers
         )
-        if not corrections:
+        if not corrections and self.structured_notes is None:
             return migrated
-        return replace(migrated, revision=1, speaker_names=corrections)
+        return replace(
+            migrated,
+            revision=1,
+            speaker_names=corrections,
+            structured_notes=self.structured_notes,
+        )
 
     def _validate_transcript(self, transcript: TranscriptDocument) -> None:
         if transcript.session_id != self.session_id or transcript.run_id != self.run_id:

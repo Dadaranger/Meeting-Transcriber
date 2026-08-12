@@ -113,6 +113,12 @@ def test_new_transcript_run_migrates_names_but_not_stale_segment_text() -> None:
     review = review.rename_speaker(first, "remote", "Morgan")
     review = review.correct_segment(first, SEGMENT_ID, "Project Atlas")
     review = review.assign_segment(first, SEGMENT_ID, "remote-2")
+    review = review.update_structured_notes(
+        first,
+        "  Launch planning  ",
+        ("Approve Friday", ""),
+        ("Morgan shares the plan",),
+    )
     second = _transcript(SECOND_RUN_ID)
 
     migrated = review.migrate_speaker_names(second, at=START + timedelta(minutes=1))
@@ -122,6 +128,10 @@ def test_new_transcript_run_migrates_names_but_not_stale_segment_text() -> None:
     assert migrated.revision == 1
     assert migrated.segment_texts == ()
     assert migrated.segment_speakers == ()
+    assert migrated.structured_notes is not None
+    assert migrated.structured_notes.summary == "Launch planning"
+    assert migrated.structured_notes.decisions == ("Approve Friday",)
+    assert migrated.structured_notes.action_items == ("Morgan shares the plan",)
     assert corrected.speakers[1].display_name == "Morgan"
     assert corrected.segments[0].text == "Project at less"
 

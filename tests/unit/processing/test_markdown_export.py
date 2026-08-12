@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from meeting_transcriber.domain.review import StructuredNotesCorrection
 from meeting_transcriber.domain.session import MeetingSession, SessionState
 from meeting_transcriber.domain.transcript import (
     TranscriptDocument,
@@ -82,6 +83,23 @@ def test_markdown_notes_make_an_empty_transcript_explicit() -> None:
 
     assert "- **Duration:** 00:00:00" in notes
     assert "_No speech was detected._" in notes
+
+
+def test_markdown_notes_render_reviewed_structured_sections() -> None:
+    notes = render_meeting_notes(
+        _session(),
+        _transcript(),
+        StructuredNotesCorrection(
+            "Aligned on the Project [Atlas] launch.",
+            ("Ship on Friday", "Keep the local-first workflow"),
+            ("Morgan: publish the revised plan",),
+        ),
+    )
+
+    assert "## Summary\n\nAligned on the Project \\[Atlas\\] launch." in notes
+    assert "## Decisions\n\n- Ship on Friday" in notes
+    assert "- Keep the local-first workflow" in notes
+    assert "## Action items\n\n- [ ] Morgan: publish the revised plan" in notes
 
 
 def test_markdown_notes_require_matching_session() -> None:

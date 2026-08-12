@@ -74,6 +74,13 @@ def test_review_store_round_trips_assignments_and_loads_schema_one(tmp_path: Pat
         "remote-2",
         at=START,
     )
+    assigned = assigned.update_structured_notes(
+        transcript,
+        "Launch review",
+        ("Ship Friday",),
+        ("Morgan: publish notes",),
+        at=START,
+    )
     store = ReviewStore(tmp_path)
     store.save(assigned)
 
@@ -81,8 +88,17 @@ def test_review_store_round_trips_assignments_and_loads_schema_one(tmp_path: Pat
 
     assert loaded == assigned
     assert loaded.apply(transcript).segments[0].speaker_id == "remote-2"
+    assert loaded.structured_notes is not None
+    assert loaded.structured_notes.summary == "Launch review"
 
     legacy = json.loads(store.review_file(SESSION_ID).read_text(encoding="utf-8"))
+    legacy["schema_version"] = 2
+    legacy.pop("structured_notes")
+    store.review_file(SESSION_ID).write_text(json.dumps(legacy), encoding="utf-8")
+    schema_two = store.load(SESSION_ID)
+    assert schema_two.segment_speakers == assigned.segment_speakers
+    assert schema_two.structured_notes is None
+
     legacy["schema_version"] = 1
     legacy.pop("segment_speakers")
     store.review_file(SESSION_ID).write_text(json.dumps(legacy), encoding="utf-8")

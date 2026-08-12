@@ -63,8 +63,10 @@ segment speaker assignments, and important segment text can be corrected one cha
 at a time; each change updates the Markdown notes and creates a retained review
 revision without altering the original model transcript. Speaker reassignment stays
 within the segment's captured audio source. The segment list explicitly labels
-overlapping speech and confidence below 70%. When a meeting is transcribed again,
-stable speaker names carry forward but run-specific segment corrections do not.
+overlapping speech and confidence below 70%. The same screen edits the reviewed
+summary, decisions, and checklist-style action items. When a meeting is transcribed
+again, stable speaker names and structured notes carry forward but run-specific
+segment corrections do not.
 
 Remote-speaker separation is now available as an optional second local stage. When
 enabled, the app assembles the system-audio chunks on the original meeting timeline,
@@ -87,8 +89,8 @@ dual-source journal, persisted transcription recovery, and deterministic accurac
 metrics. A real 60-minute hardware soak and representative accuracy samples are
 still required before a release. Baseline Markdown export, durable transcript
 correction and speaker reassignment, review cues, and optional remote voice
-diarization are implemented; editable summary/action sections and release packaging
-remain active product milestones.
+diarization are implemented. Editable structured notes are also complete; release
+packaging remains the active product milestone.
 
 ## Run the development application
 

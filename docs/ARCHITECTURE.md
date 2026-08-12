@@ -220,18 +220,19 @@ sessions remain interrupted for diagnostics.
 ## Review overlay
 
 `transcript.json` is immutable model output. User changes are stored separately in
-`transcript-review.json` as sparse speaker-name, segment-text, and segment-speaker
-corrections tied to one transcript run. The current schema is version 2 and the
-loader remains backward-compatible with schema 1. Speaker assignment is constrained
-to speakers from the segment's captured source. Every saved change is retained under
+`transcript-review.json` as sparse speaker-name, segment-text, segment-speaker, and
+structured-note corrections tied to one transcript run. The current schema is
+version 3 and the loader remains backward-compatible with schemas 1 and 2. Speaker
+assignment is constrained to speakers from the segment's captured source. Every
+saved change is retained under
 `derived/reviews/<run-id>/`, allowing audit and recovery without copying the full
 transcript.
 
 Rendering applies the current review overlay to the canonical transcript in memory,
 then writes `meeting-notes.md`; it never rewrites `transcript.json`. A new
 transcription run may inherit stable speaker-name corrections for matching speaker
-IDs, but it drops segment-text and segment-speaker corrections because segment IDs
-and model output are run-specific.
+IDs plus the meeting-level summary, decisions, and action items. It drops segment-text
+and segment-speaker corrections because segment IDs and model output are run-specific.
 
 ## Canonical transcript schema (conceptual)
 

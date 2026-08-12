@@ -92,6 +92,21 @@ def test_review_page_emits_explicit_speaker_and_segment_edits(qtbot: QtBot) -> N
         qtbot.mouseClick(page.save_assignment_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     assert assigned.args == [SESSION_ID, SEGMENT_ID, "remote-2"]
 
+    page.summary_edit.setPlainText("Launch review")
+    page.decisions_edit.setPlainText("Ship Friday\nKeep processing local")
+    page.action_items_edit.setPlainText("Morgan: publish notes")
+    with qtbot.waitSignal(page.structured_notes_requested) as structured:
+        qtbot.mouseClick(  # type: ignore[no-untyped-call]
+            page.save_structured_notes_button,
+            Qt.MouseButton.LeftButton,
+        )
+    assert structured.args == [
+        SESSION_ID,
+        "Launch review",
+        "Ship Friday\nKeep processing local",
+        "Morgan: publish notes",
+    ]
+
 
 def test_review_page_labels_overlap_and_low_confidence_without_color_only_cues(
     qtbot: QtBot,
@@ -113,6 +128,12 @@ def test_review_page_reset_controls_restore_model_values(qtbot: QtBot) -> None:
     review = snapshot.review.rename_speaker(source, "remote", "Morgan")
     review = review.correct_segment(source, SEGMENT_ID, "Project Atlas")
     review = review.assign_segment(source, SEGMENT_ID, "remote-2")
+    review = review.update_structured_notes(
+        source,
+        "Launch review",
+        ("Ship Friday",),
+        ("Morgan: publish notes",),
+    )
     corrected = ReviewSnapshot(source, review, review.apply(source), Path("meeting-notes.md"))
     page = TranscriptReviewPage()
     qtbot.addWidget(page)
@@ -125,4 +146,7 @@ def test_review_page_reset_controls_restore_model_values(qtbot: QtBot) -> None:
     assert page.speaker_name_input.text() == "Remote speakers"
     assert page.segment_text_edit.toPlainText() == "Project at less"
     assert page.segment_speaker_combo.currentData() == "remote"
-    assert "revision 3" in page.review_status.text()
+    assert page.summary_edit.toPlainText() == "Launch review"
+    assert page.decisions_edit.toPlainText() == "Ship Friday"
+    assert page.action_items_edit.toPlainText() == "Morgan: publish notes"
+    assert "revision 4" in page.review_status.text()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
+from meeting_transcriber.domain.review import StructuredNotesCorrection
 from meeting_transcriber.domain.session import MeetingSession
 from meeting_transcriber.domain.transcript import TranscriptDocument, TranscriptSource
 
@@ -15,12 +16,14 @@ SOURCE_LABELS = {
 def render_meeting_notes(
     session: MeetingSession,
     transcript: TranscriptDocument,
+    structured_notes: StructuredNotesCorrection | None = None,
 ) -> str:
     """Render a deterministic, editable Markdown record for one transcript."""
 
     if session.session_id != transcript.session_id:
         raise ValueError("Meeting session and transcript IDs do not match")
 
+    notes = structured_notes or StructuredNotesCorrection()
     lines = [
         f"# {_escape_markdown(session.title)}",
         "",
@@ -34,9 +37,31 @@ def render_meeting_notes(
         f"- **Transcription profile:** {_escape_markdown(transcript.profile.value.title())}",
         f"- **Model:** {_escape_markdown(transcript.model)}",
         "",
-        "## Participants and audio sources",
+        "## Summary",
+        "",
+        _escape_markdown(notes.summary) if notes.summary else "_No reviewed summary yet._",
+        "",
+        "## Decisions",
         "",
     ]
+    lines.extend(
+        (f"- {_escape_markdown(decision)}" for decision in notes.decisions)
+        if notes.decisions
+        else ("_No reviewed decisions recorded._",)
+    )
+    lines.extend(("", "## Action items", ""))
+    lines.extend(
+        (f"- [ ] {_escape_markdown(item)}" for item in notes.action_items)
+        if notes.action_items
+        else ("_No reviewed action items recorded._",)
+    )
+    lines.extend(
+        (
+            "",
+            "## Participants and audio sources",
+            "",
+        )
+    )
     for speaker in transcript.speakers:
         lines.append(
             f"- **{_escape_markdown(speaker.display_name)}** — {SOURCE_LABELS[speaker.source]}"

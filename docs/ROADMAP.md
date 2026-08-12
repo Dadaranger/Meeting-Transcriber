@@ -165,7 +165,9 @@ planned release evidence.
 **Current implementation status:** versioned JSON, deterministic baseline Markdown,
 retained rendered runs, automatic post-transcription export, and the History open
 action are implemented. Reviewed transcript corrections are preserved during every
-re-export. Editable structured sections remain planned.
+re-export. The in-app review screen now stores and renders an editable summary,
+decisions, and checklist-style action items; these meeting-level edits carry forward
+across later transcript runs.
 
 ## Milestone 7 — Desktop release hardening
 

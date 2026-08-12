@@ -32,6 +32,7 @@ class TranscriptReviewPage(QWidget):
     rename_requested = Signal(str, str, str)
     correction_requested = Signal(str, str, str)
     assignment_requested = Signal(str, str, str)
+    structured_notes_requested = Signal(str, str, str, str)
     open_notes_requested = Signal(str)
     back_requested = Signal()
 
@@ -81,6 +82,54 @@ class TranscriptReviewPage(QWidget):
         speaker_row.addWidget(self.save_speaker_button)
         speaker_layout.addLayout(speaker_row)
         root.addWidget(speaker_card)
+
+        notes_card = QFrame()
+        notes_card.setObjectName("recordingCard")
+        notes_layout = QVBoxLayout(notes_card)
+        notes_layout.setContentsMargins(20, 16, 20, 18)
+        notes_layout.setSpacing(9)
+        notes_layout.addWidget(_label("Reviewed meeting notes", "sectionTitle"))
+        notes_layout.addWidget(
+            _label(
+                "Write a summary and put each decision or action item on its own line.",
+                "muted",
+                wrap=True,
+            )
+        )
+        notes_fields = QHBoxLayout()
+        summary_column = QVBoxLayout()
+        summary_column.addWidget(_label("Summary", "muted"))
+        self.summary_edit = QPlainTextEdit()
+        self.summary_edit.setAccessibleName("Reviewed meeting summary")
+        self.summary_edit.setPlaceholderText("What was discussed and why?")
+        self.summary_edit.setMaximumHeight(100)
+        summary_column.addWidget(self.summary_edit)
+        notes_fields.addLayout(summary_column, 1)
+        decisions_column = QVBoxLayout()
+        decisions_column.addWidget(_label("Decisions — one per line", "muted"))
+        self.decisions_edit = QPlainTextEdit()
+        self.decisions_edit.setAccessibleName("Reviewed meeting decisions")
+        self.decisions_edit.setPlaceholderText("Approved the launch date")
+        self.decisions_edit.setMaximumHeight(100)
+        decisions_column.addWidget(self.decisions_edit)
+        notes_fields.addLayout(decisions_column, 1)
+        actions_column = QVBoxLayout()
+        actions_column.addWidget(_label("Action items — one per line", "muted"))
+        self.action_items_edit = QPlainTextEdit()
+        self.action_items_edit.setAccessibleName("Reviewed meeting action items")
+        self.action_items_edit.setPlaceholderText("Morgan: share the revised plan by Friday")
+        self.action_items_edit.setMaximumHeight(100)
+        actions_column.addWidget(self.action_items_edit)
+        notes_fields.addLayout(actions_column, 1)
+        notes_layout.addLayout(notes_fields)
+        notes_actions = QHBoxLayout()
+        notes_actions.addStretch()
+        self.save_structured_notes_button = QPushButton("Save reviewed notes")
+        self.save_structured_notes_button.setObjectName("primaryButton")
+        self.save_structured_notes_button.clicked.connect(self._emit_structured_notes)
+        notes_actions.addWidget(self.save_structured_notes_button)
+        notes_layout.addLayout(notes_actions)
+        root.addWidget(notes_card)
 
         transcript_card = QFrame()
         transcript_card.setObjectName("historyCard")
@@ -172,6 +221,15 @@ class TranscriptReviewPage(QWidget):
         self.speaker_combo.blockSignals(False)
         self._speaker_changed()
 
+        structured_notes = snapshot.review.structured_notes
+        self.summary_edit.setPlainText(structured_notes.summary if structured_notes else "")
+        self.decisions_edit.setPlainText(
+            "\n".join(structured_notes.decisions) if structured_notes else ""
+        )
+        self.action_items_edit.setPlainText(
+            "\n".join(structured_notes.action_items) if structured_notes else ""
+        )
+
         self.segment_list.clear()
         overlapping_ids = _overlapping_segment_ids(snapshot.reviewed_transcript.segments)
         for segment in snapshot.reviewed_transcript.segments:
@@ -210,7 +268,8 @@ class TranscriptReviewPage(QWidget):
         detail = (
             f"Review revision {review.revision}: {len(review.speaker_names)} renamed label(s), "
             f"{len(review.segment_texts)} corrected segment(s), "
-            f"{len(review.segment_speakers)} reassigned speaker(s)."
+            f"{len(review.segment_speakers)} reassigned speaker(s), "
+            f"{1 if review.structured_notes is not None else 0} reviewed note set(s)."
         )
         self.review_status.setText(f"{saved_message} {detail}" if saved_message else detail)
 
@@ -317,6 +376,15 @@ class TranscriptReviewPage(QWidget):
         if session_id is not None and segment_id is not None and isinstance(speaker_id, str):
             self.assignment_requested.emit(session_id, segment_id, speaker_id)
 
+    def _emit_structured_notes(self) -> None:
+        if self._session_id is not None:
+            self.structured_notes_requested.emit(
+                self._session_id,
+                self.summary_edit.toPlainText(),
+                self.decisions_edit.toPlainText(),
+                self.action_items_edit.toPlainText(),
+            )
+
     def _emit_open_notes(self) -> None:
         if self._session_id is not None:
             self.open_notes_requested.emit(self._session_id)
@@ -334,6 +402,10 @@ class TranscriptReviewPage(QWidget):
         self.speaker_name_input.setEnabled(enabled)
         self.reset_speaker_button.setEnabled(enabled)
         self.save_speaker_button.setEnabled(enabled)
+        self.summary_edit.setEnabled(enabled)
+        self.decisions_edit.setEnabled(enabled)
+        self.action_items_edit.setEnabled(enabled)
+        self.save_structured_notes_button.setEnabled(enabled)
         self.open_notes_button.setEnabled(enabled)
 
 

@@ -108,6 +108,25 @@ class MeetingReviewService:
         except (OSError, ValueError) as error:
             raise ReviewWorkflowError(str(error)) from error
 
+    def update_structured_notes(
+        self,
+        session_id: str,
+        summary: str,
+        decisions: str,
+        action_items: str,
+    ) -> ReviewSnapshot:
+        snapshot = self.load(session_id)
+        try:
+            review = snapshot.review.update_structured_notes(
+                snapshot.source_transcript,
+                summary,
+                _nonblank_lines(decisions),
+                _nonblank_lines(action_items),
+            )
+            return self._save_and_render(snapshot.source_transcript, review)
+        except (OSError, ValueError) as error:
+            raise ReviewWorkflowError(str(error)) from error
+
     def _save_and_render(
         self,
         transcript: TranscriptDocument,
@@ -120,6 +139,10 @@ class MeetingReviewService:
         notes_path = self.notes_store.save(
             transcript.session_id,
             transcript.run_id,
-            render_meeting_notes(session, reviewed),
+            render_meeting_notes(session, reviewed, review.structured_notes),
         )
         return ReviewSnapshot(transcript, review, reviewed, notes_path)
+
+
+def _nonblank_lines(value: str) -> tuple[str, ...]:
+    return tuple(line.strip() for line in value.splitlines() if line.strip())

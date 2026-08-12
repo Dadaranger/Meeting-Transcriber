@@ -13,6 +13,7 @@ from meeting_transcriber.domain.review import (
     SegmentSpeakerCorrection,
     SegmentTextCorrection,
     SpeakerNameCorrection,
+    StructuredNotesCorrection,
     TranscriptReview,
 )
 from meeting_transcriber.domain.transcript import TranscriptDocument
@@ -132,12 +133,21 @@ def _review_document(review: TranscriptReview) -> dict[str, object]:
             }
             for correction in review.segment_speakers
         ],
+        "structured_notes": (
+            {
+                "summary": review.structured_notes.summary,
+                "decisions": list(review.structured_notes.decisions),
+                "action_items": list(review.structured_notes.action_items),
+            }
+            if review.structured_notes is not None
+            else None
+        ),
     }
 
 
 def _parse_review(document: Mapping[str, object]) -> TranscriptReview:
     schema_version = document.get("schema_version")
-    if schema_version not in {1, TranscriptReview.SCHEMA_VERSION}:
+    if schema_version not in {1, 2, TranscriptReview.SCHEMA_VERSION}:
         raise ReviewDataError(
             f"Unsupported transcript review schema {document.get('schema_version')!r}"
         )
@@ -174,8 +184,13 @@ def _parse_review(document: Mapping[str, object]) -> TranscriptReview:
                     for item in _list(document, "segment_speakers")
                 )
             )
-            if schema_version == TranscriptReview.SCHEMA_VERSION
+            if schema_version in {2, TranscriptReview.SCHEMA_VERSION}
             else ()
+        )
+        structured_notes = (
+            _parse_structured_notes(document.get("structured_notes"))
+            if schema_version == TranscriptReview.SCHEMA_VERSION
+            else None
         )
         revision = document.get("revision")
         if isinstance(revision, bool) or not isinstance(revision, int):
@@ -188,6 +203,7 @@ def _parse_review(document: Mapping[str, object]) -> TranscriptReview:
             speaker_names,
             segment_texts,
             segment_speakers,
+            structured_notes,
         )
     except (TypeError, ValueError) as error:
         if isinstance(error, ReviewDataError):
@@ -210,6 +226,32 @@ def _list(document: Mapping[str, object], field: str) -> list[object]:
 
 def _string(document: Mapping[str, object], field: str) -> str:
     value = document.get(field)
+    if not isinstance(value, str) or not value:
+        raise ReviewDataError(f"{field} must be a non-empty string")
+    return value
+
+
+def _parse_structured_notes(value: object) -> StructuredNotesCorrection | None:
+    if value is None:
+        return None
+    document = _mapping(value, "structured_notes")
+    summary = document.get("summary")
+    if not isinstance(summary, str):
+        raise ReviewDataError("structured_notes.summary must be a string")
+    return StructuredNotesCorrection(
+        summary,
+        tuple(
+            _string_value(item, "structured_notes.decisions[]")
+            for item in _list(document, "decisions")
+        ),
+        tuple(
+            _string_value(item, "structured_notes.action_items[]")
+            for item in _list(document, "action_items")
+        ),
+    )
+
+
+def _string_value(value: object, field: str) -> str:
     if not isinstance(value, str) or not value:
         raise ReviewDataError(f"{field} must be a non-empty string")
     return value

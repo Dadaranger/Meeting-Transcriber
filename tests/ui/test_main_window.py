@@ -592,9 +592,20 @@ def test_history_launches_and_completes_offline_transcription(
         window.review_page.save_segment_button,
         Qt.MouseButton.LeftButton,
     )
+    window.review_page.summary_edit.setPlainText("Launch review")
+    window.review_page.decisions_edit.setPlainText("Ship Friday")
+    window.review_page.action_items_edit.setPlainText("Morgan: publish notes")
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.review_page.save_structured_notes_button,
+        Qt.MouseButton.LeftButton,
+    )
 
     review = ReviewStore(tmp_path).load(session_id)
     markdown = MeetingNotesStore(tmp_path).notes_file(session_id).read_text(encoding="utf-8")
-    assert review.revision == 2
+    assert review.revision == 3
+    assert review.structured_notes is not None
+    assert review.structured_notes.summary == "Launch review"
     assert "Morgan" in markdown
     assert "Project Atlas" in markdown
+    assert "## Decisions\n\n- Ship Friday" in markdown
+    assert "- [ ] Morgan: publish notes" in markdown

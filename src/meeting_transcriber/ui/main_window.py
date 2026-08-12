@@ -478,6 +478,7 @@ class MainWindow(QMainWindow):
         self.review_page.rename_requested.connect(self._rename_review_speaker)
         self.review_page.correction_requested.connect(self._correct_review_segment)
         self.review_page.assignment_requested.connect(self._assign_review_segment)
+        self.review_page.structured_notes_requested.connect(self._save_reviewed_notes)
         self.review_page.open_notes_requested.connect(self._open_meeting_notes)
         self.review_page.back_requested.connect(self._show_history)
         self.pages.addWidget(self.review_page)
@@ -896,6 +897,34 @@ class MainWindow(QMainWindow):
             saved_message="Speaker assignment saved.",
         )
         self.statusBar().showMessage("Speaker assignment and meeting notes updated", 8_000)
+
+    def _save_reviewed_notes(
+        self,
+        session_id: str,
+        summary: str,
+        decisions: str,
+        action_items: str,
+    ) -> None:
+        selected_speaker = self.review_page.selected_speaker_id()
+        selected_segment = self.review_page.selected_segment_id()
+        try:
+            snapshot = self.review_service.update_structured_notes(
+                session_id,
+                summary,
+                decisions,
+                action_items,
+            )
+        except ReviewWorkflowError as error:
+            QMessageBox.warning(self, "Reviewed notes could not be saved", str(error))
+            return
+        self.review_page.load_snapshot(
+            self.session_service.get_session(session_id),
+            snapshot,
+            selected_speaker_id=selected_speaker,
+            selected_segment_id=selected_segment,
+            saved_message="Reviewed meeting notes saved.",
+        )
+        self.statusBar().showMessage("Reviewed notes and Markdown updated", 8_000)
 
     def _recover_session(self, session_id: str) -> None:
         try:

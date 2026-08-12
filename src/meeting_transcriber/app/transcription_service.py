@@ -463,7 +463,11 @@ class MeetingTranscriptionService:
         review = self.review_store.load_for_transcript(transcript)
         if review.revision > 0:
             self.review_store.save(review)
-        markdown = render_meeting_notes(session, review.apply(transcript))
+        markdown = render_meeting_notes(
+            session,
+            review.apply(transcript),
+            review.structured_notes,
+        )
         return self.notes_store.save(transcript.session_id, transcript.run_id, markdown)
 
     def _restore_recorded_state(self, session_id: str) -> None:
