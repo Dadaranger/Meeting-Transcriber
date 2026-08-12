@@ -9,6 +9,11 @@ from pytestqt.qtbot import QtBot
 
 from meeting_transcriber.app.recording_service import RecordingLevels, RecordingStopResult
 from meeting_transcriber.app.session_service import MeetingSessionService
+from meeting_transcriber.app.storage_health import (
+    BYTES_PER_GIBIBYTE,
+    DiskSpaceStatus,
+    StorageHealth,
+)
 from meeting_transcriber.capture.devices import (
     AudioDevice,
     AudioDeviceCatalog,
@@ -62,6 +67,11 @@ class FakeRecordingWorkflow:
 
     def discover_devices(self) -> AudioDeviceCatalog:
         return self.discovery.discover_devices()
+
+    def storage_status(self) -> DiskSpaceStatus:
+        total = 100 * BYTES_PER_GIBIBYTE
+        free = 10 * BYTES_PER_GIBIBYTE
+        return DiskSpaceStatus(total, total - free, free, StorageHealth.HEALTHY)
 
     def start_preflight(
         self,
@@ -165,6 +175,8 @@ def test_create_draft_button_persists_a_named_session(
     assert window.pages.currentWidget() is window.recording_page
     assert not window.recording_page.begin_button.isEnabled()
     assert "review recording setup" in window.statusBar().currentMessage()
+    assert "GiB free" in window.recording_page.storage_status_label.text()
+    assert window.storage_timer.isActive()
 
 
 def test_diagnostics_refreshes_audio_devices_explicitly(qtbot: QtBot, tmp_path: Path) -> None:
@@ -229,6 +241,7 @@ def test_consent_gated_ui_starts_and_stops_visible_recording(
     assert not window.home_button.isEnabled()
     assert window.recording_page.microphone_level.value() == 20
     assert window.recording_page.system_audio_level.value() == 80
+    assert "10.0 GiB free" in window.recording_page.live_storage_label.text()
 
     qtbot.mouseClick(  # type: ignore[no-untyped-call]
         window.recording_page.pause_button,

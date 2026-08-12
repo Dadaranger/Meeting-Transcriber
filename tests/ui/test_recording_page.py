@@ -1,6 +1,11 @@
 from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
+from meeting_transcriber.app.storage_health import (
+    BYTES_PER_GIBIBYTE,
+    DiskSpaceStatus,
+    StorageHealth,
+)
 from meeting_transcriber.capture.devices import (
     AudioDevice,
     AudioDeviceCatalog,
@@ -125,6 +130,14 @@ def test_recording_state_has_persistent_timer_sources_and_stop_control(qtbot: Qt
     page.load_session(draft, _catalog())
 
     page.show_recording(recording)
+    page.update_storage(
+        DiskSpaceStatus(
+            total_bytes=100 * BYTES_PER_GIBIBYTE,
+            used_bytes=99 * BYTES_PER_GIBIBYTE,
+            free_bytes=BYTES_PER_GIBIBYTE,
+            health=StorageHealth.WARNING,
+        )
+    )
 
     assert page.setup_card.isHidden()
     assert not page.recording_card.isHidden()
@@ -132,6 +145,7 @@ def test_recording_state_has_persistent_timer_sources_and_stop_control(qtbot: Qt
     assert page.elapsed_label.text() == "00:00:00"
     assert "Headset microphone" in page.live_sources_label.text()
     assert "Speakers [Loopback]" in page.live_sources_label.text()
+    assert "Low storage" in page.live_storage_label.text()
 
     page.update_levels(0.42, 0.91)
     assert page.microphone_level.value() == 42

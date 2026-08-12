@@ -8,6 +8,11 @@ from threading import Lock
 from typing import Protocol
 
 from meeting_transcriber.app.session_service import MeetingSessionService
+from meeting_transcriber.app.storage_health import (
+    DiskSpaceChecker,
+    DiskSpaceStatus,
+    StorageHealth,
+)
 from meeting_transcriber.capture.devices import (
     AudioDevice,
     AudioDeviceCatalog,
@@ -45,6 +50,10 @@ class RecordingStartError(RecordingWorkflowError):
 
 class RecordingPreflightError(RecordingWorkflowError):
     """Raised when the consent-gated source test cannot start or stop cleanly."""
+
+
+class RecordingStorageCritical(RecordingWorkflowError):
+    """Raised before capture when the meeting volume has critically low free space."""
 
 
 class RecordingStopError(RecordingWorkflowError):
@@ -89,6 +98,10 @@ class SourcePreflightFactory(Protocol):
     ) -> SourcePreflight: ...
 
 
+class StorageChecker(Protocol):
+    def check(self) -> DiskSpaceStatus: ...
+
+
 @dataclass(frozen=True, slots=True)
 class RecordingLevels:
     microphone: float = 0.0
@@ -103,6 +116,8 @@ class RecordingWorkflow(Protocol):
     def is_preflighting(self) -> bool: ...
 
     def discover_devices(self) -> AudioDeviceCatalog: ...
+
+    def storage_status(self) -> DiskSpaceStatus: ...
 
     def start_preflight(
         self,
@@ -181,12 +196,14 @@ class MeetingRecordingService:
         stream_factory: AudioStreamFactory,
         capture_factory: CoordinatedCaptureFactory = build_dual_source_capture,
         preflight_factory: SourcePreflightFactory = build_source_preflight,
+        storage_checker: StorageChecker | None = None,
     ):
         self.session_service = session_service
         self.device_discovery = device_discovery
         self.stream_factory = stream_factory
         self.capture_factory = capture_factory
         self.preflight_factory = preflight_factory
+        self.storage_checker = storage_checker or DiskSpaceChecker(session_service.store.root)
         self._active: _ActiveRecording | None = None
         self._active_preflight: SourcePreflight | None = None
         self._level_lock = Lock()
@@ -202,6 +219,9 @@ class MeetingRecordingService:
 
     def discover_devices(self) -> AudioDeviceCatalog:
         return self.device_discovery.discover_devices()
+
+    def storage_status(self) -> DiskSpaceStatus:
+        return self.storage_checker.check()
 
     def latest_levels(self) -> RecordingLevels:
         with self._level_lock:
@@ -265,6 +285,12 @@ class MeetingRecordingService:
             raise RecordingWorkflowError("Another meeting is already recording")
         if self._active_preflight is not None:
             raise RecordingWorkflowError("Stop the audio source test before recording")
+        try:
+            storage = self.storage_status()
+        except OSError as error:
+            raise RecordingWorkflowError("Meeting storage could not be checked") from error
+        if storage.health is StorageHealth.CRITICAL:
+            raise RecordingStorageCritical(storage.display_text)
         self._require_consent(consent_confirmed)
         configs = self._selected_configs(microphone_id, loopback_id)
 

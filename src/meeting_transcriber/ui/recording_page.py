@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from meeting_transcriber.app.storage_health import DiskSpaceStatus
 from meeting_transcriber.capture.devices import AudioDevice, AudioDeviceCatalog
 from meeting_transcriber.domain.session import CONSENT_STATEMENT, MeetingSession
 
@@ -82,6 +83,11 @@ class RecordingPage(QWidget):
 
         self.device_status_label = _label("Audio devices have not been loaded.", "muted", wrap=True)
         card_layout.addWidget(self.device_status_label)
+        self.storage_status_label = _label(
+            "Meeting storage has not been checked.", "muted", wrap=True
+        )
+        self.storage_status_label.setAccessibleName("Available meeting storage")
+        card_layout.addWidget(self.storage_status_label)
 
         card_layout.addSpacing(6)
         self.consent_checkbox = QCheckBox(CONSENT_STATEMENT)
@@ -166,6 +172,9 @@ class RecordingPage(QWidget):
         )
         self.live_sources_label = _label("", "muted", wrap=True)
         recording_layout.addWidget(self.live_sources_label)
+        self.live_storage_label = _label("", "muted", wrap=True)
+        self.live_storage_label.setAccessibleName("Live available meeting storage")
+        recording_layout.addWidget(self.live_storage_label)
 
         recording_layout.addWidget(_label("Microphone level", "muted"))
         self.microphone_level = QProgressBar()
@@ -266,6 +275,15 @@ class RecordingPage(QWidget):
         self.system_audio_level.setValue(system_percent)
         self.preflight_microphone_level.setValue(microphone_percent)
         self.preflight_system_level.setValue(system_percent)
+
+    def update_storage(self, status: DiskSpaceStatus) -> None:
+        self.storage_status_label.setText(status.display_text)
+        self.live_storage_label.setText(status.display_text)
+
+    def show_storage_error(self, message: str) -> None:
+        text = f"Meeting storage check unavailable: {message}"
+        self.storage_status_label.setText(text)
+        self.live_storage_label.setText(text)
 
     def show_preflight(self, active: bool) -> None:
         self._preflight_active = active

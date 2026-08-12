@@ -11,9 +11,15 @@ from meeting_transcriber.app.recording_service import (
     RecordingDeviceUnavailable,
     RecordingStartError,
     RecordingStopError,
+    RecordingStorageCritical,
     RecordingWorkflowError,
 )
 from meeting_transcriber.app.session_service import MeetingSessionService
+from meeting_transcriber.app.storage_health import (
+    BYTES_PER_GIBIBYTE,
+    DiskSpaceStatus,
+    StorageHealth,
+)
 from meeting_transcriber.capture.devices import (
     AudioDevice,
     AudioDeviceCatalog,
@@ -43,6 +49,16 @@ class FakeDiscovery:
 class UnusedStreamFactory:
     def open_input(self, config: SourceCaptureConfig) -> AudioInputStream:
         raise AssertionError(f"Fake coordinated capture should own {config.device.name}")
+
+
+class FakeStorageChecker:
+    def __init__(self, status: DiskSpaceStatus):
+        self.status = status
+        self.calls = 0
+
+    def check(self) -> DiskSpaceStatus:
+        self.calls += 1
+        return self.status
 
 
 class FakeCapture:
@@ -195,6 +211,14 @@ def _manifest(session_id: str, state: CaptureJournalState) -> CaptureManifest:
     )
 
 
+def _storage_status(
+    health: StorageHealth = StorageHealth.HEALTHY,
+    free_bytes: int = 10 * BYTES_PER_GIBIBYTE,
+) -> DiskSpaceStatus:
+    total = 100 * BYTES_PER_GIBIBYTE
+    return DiskSpaceStatus(total, total - free_bytes, free_bytes, health)
+
+
 def _service(
     tmp_path: Path,
     *,
@@ -202,6 +226,7 @@ def _service(
     fail_start: bool = False,
     fail_stop: bool = False,
     stop_state: CaptureJournalState = CaptureJournalState.STOPPED,
+    storage_status: DiskSpaceStatus | None = None,
 ) -> tuple[MeetingRecordingService, MeetingSessionService, FakeDiscovery, FakeCaptureFactory]:
     sessions = MeetingSessionService(SessionStore(tmp_path))
     discovery = FakeDiscovery(catalog or _catalog())
@@ -217,6 +242,7 @@ def _service(
         UnusedStreamFactory(),
         captures,
         captures.build_preflight,
+        FakeStorageChecker(storage_status or _storage_status()),
     )
     return service, sessions, discovery, captures
 
@@ -238,6 +264,21 @@ def test_missing_ui_acknowledgement_opens_nothing(tmp_path: Path) -> None:
     assert captures.calls == []
     assert persisted.state is SessionState.DRAFT
     assert persisted.consent_confirmed_at is None
+
+
+def test_critical_storage_blocks_recording_before_consent_or_device_refresh(
+    tmp_path: Path,
+) -> None:
+    critical = _storage_status(StorageHealth.CRITICAL, BYTES_PER_GIBIBYTE // 2)
+    service, sessions, discovery, captures = _service(tmp_path, storage_status=critical)
+    draft = sessions.create_draft("Weekly sync")
+
+    with pytest.raises(RecordingStorageCritical, match="Critical storage"):
+        service.start(draft.session_id, "mic", "loopback", consent_confirmed=True)
+
+    assert discovery.calls == 0
+    assert captures.calls == []
+    assert sessions.get_session(draft.session_id).consent_confirmed_at is None
 
 
 def test_missing_ui_acknowledgement_blocks_source_preflight(tmp_path: Path) -> None:

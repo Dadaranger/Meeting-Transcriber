@@ -8,12 +8,16 @@ from meeting_transcriber.app.recording_service import (
     RecordingStartError,
     RecordingStopError,
     RecordingStopResult,
+    RecordingStorageCritical,
     RecordingWorkflow,
     RecordingWorkflowError,
 )
 from meeting_transcriber.app.session_service import MeetingSessionService, SessionRecoveryError
+from meeting_transcriber.app.storage_health import DiskSpaceChecker, DiskSpaceStatus, StorageHealth
 
 __all__ = [
+    "DiskSpaceChecker",
+    "DiskSpaceStatus",
     "MeetingRecordingService",
     "MeetingSessionService",
     "RecordingConsentRequired",
@@ -22,7 +26,9 @@ __all__ = [
     "RecordingStartError",
     "RecordingStopError",
     "RecordingStopResult",
+    "RecordingStorageCritical",
     "RecordingWorkflow",
     "RecordingWorkflowError",
     "SessionRecoveryError",
+    "StorageHealth",
 ]

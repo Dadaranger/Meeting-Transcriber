@@ -31,6 +31,7 @@ from meeting_transcriber.app.session_service import (
     MeetingSessionService,
     SessionRecoveryError,
 )
+from meeting_transcriber.app.storage_health import StorageHealth
 from meeting_transcriber.capture.devices import (
     AudioDeviceCatalog,
     AudioDeviceDiscovery,
@@ -440,6 +441,10 @@ class MainWindow(QMainWindow):
         self.preflight_timeout.setSingleShot(True)
         self.preflight_timeout.setInterval(5_000)
         self.preflight_timeout.timeout.connect(self._stop_preflight)
+        self.storage_timer = QTimer(self)
+        self.storage_timer.setInterval(5_000)
+        self.storage_timer.timeout.connect(self._refresh_storage_status)
+        self._last_storage_health: StorageHealth | None = None
 
     def _create_draft(self) -> None:
         title, accepted = QInputDialog.getText(
@@ -459,6 +464,9 @@ class MainWindow(QMainWindow):
             self.recording_page.show_device_error(str(error))
         else:
             self.recording_page.load_session(session, catalog)
+        self._last_storage_health = None
+        self._refresh_storage_status()
+        self.storage_timer.start()
         self.pages.setCurrentWidget(self.recording_page)
         self.statusBar().showMessage(f"Draft saved - review recording setup for {session.title}")
 
@@ -476,6 +484,7 @@ class MainWindow(QMainWindow):
                 consent_confirmed=self.recording_page.consent_checkbox.isChecked(),
             )
         except RecordingWorkflowError as error:
+            self._refresh_storage_status()
             self.statusBar().showMessage(f"Recording did not start - {error}")
             QMessageBox.critical(self, "Recording could not start", str(error))
             return
@@ -582,6 +591,7 @@ class MainWindow(QMainWindow):
                 )
         finally:
             self.level_timer.stop()
+            self.storage_timer.stop()
             self.recording_page.recording_finished()
             self.global_recording_indicator.hide()
             self._set_navigation_enabled(True)
@@ -589,12 +599,14 @@ class MainWindow(QMainWindow):
 
     def _show_home(self) -> None:
         if not self.recording_service.is_recording:
+            self.storage_timer.stop()
             self.pages.setCurrentWidget(self.home_page)
             self.home_button.setChecked(True)
 
     def _show_history(self) -> None:
         if self.recording_service.is_recording:
             return
+        self.storage_timer.stop()
         self._refresh_history()
         self.pages.setCurrentWidget(self.history_page)
         self.history_button.setChecked(True)
@@ -644,6 +656,21 @@ class MainWindow(QMainWindow):
     def _refresh_levels(self) -> None:
         levels = self.recording_service.latest_levels()
         self.recording_page.update_levels(levels.microphone, levels.system_audio)
+
+    def _refresh_storage_status(self) -> None:
+        try:
+            status = self.recording_service.storage_status()
+        except OSError as error:
+            self.recording_page.show_storage_error(str(error))
+            return
+        self.recording_page.update_storage(status)
+        if (
+            self.recording_service.is_recording
+            and status.health is not StorageHealth.HEALTHY
+            and status.health is not self._last_storage_health
+        ):
+            self.statusBar().showMessage(status.display_text, 10_000)
+        self._last_storage_health = status.health
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.recording_service.is_preflighting:
@@ -695,7 +722,7 @@ class MainWindow(QMainWindow):
             button.setAutoExclusive(True)
             layout.addWidget(button)
         self.home_button.setChecked(True)
-        self.home_button.clicked.connect(lambda: self.pages.setCurrentWidget(self.home_page))
+        self.home_button.clicked.connect(self._show_home)
         self.history_button.clicked.connect(self._show_history)
         self.diagnostics_button.clicked.connect(
             lambda: self.pages.setCurrentWidget(self.diagnostics_page)
