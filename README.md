@@ -49,10 +49,12 @@ exist, and can open the exact local meeting folder.
 
 After capture, History can start a resumable local faster-whisper job using fast,
 balanced, or accurate profiles. The user controls the one-time model download;
-cached runs require no network. Progress survives at chunk boundaries, cancellation
-preserves the recording and prepared audio, and interrupted jobs become retryable at
-the next startup. The canonical versioned result is `transcript.json`, with prior
-runs retained under `derived/transcripts/`.
+the app shows exact byte progress and the cache location, and cached runs require no
+network. Cancellation stops an active model transfer cooperatively and preserves its
+resumable cache as well as the recording and prepared audio. Processing progress
+survives at chunk boundaries, and interrupted jobs become retryable at the next
+startup. The canonical versioned result is `transcript.json`, with prior runs retained
+under `derived/transcripts/`.
 
 Each successful transcription also creates an editable `meeting-notes.md` with
 meeting metadata, participant/source labels, timestamps, and the complete

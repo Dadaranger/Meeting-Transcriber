@@ -107,11 +107,12 @@ external service.
 - Re-running with another language/model creates a new processing result.
 - CPU-only processing is supported and progress remains responsive.
 
-**Current implementation status:** local model profiles, explicit download
-permission, word timestamps, dual-source timeline merge, persisted progress,
-cancellation, retry, and interrupted-job recovery are implemented. The remaining
-release evidence is deterministic real-model fixture coverage plus target-hardware
-CPU/CUDA benchmarking.
+**Current implementation status:** local model profiles, explicit model acquisition,
+persisted byte progress, cooperative transfer cancellation, strictly local model
+loading, word timestamps, dual-source timeline merge, retry, and interrupted-job
+recovery are implemented. A real `small`-model English fixture qualification passed
+on CPU. The remaining release evidence is representative multi-profile and
+multilingual accuracy coverage plus target-hardware CPU/CUDA benchmarking.
 
 ## Milestone 5 — Speaker attribution and review
 
