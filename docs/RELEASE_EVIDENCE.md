@@ -20,7 +20,7 @@ evidence record, not a substitute for [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST
 | Unit, integration, and UI behavior | 157 tests | Pass |
 | Failure injection and synthetic one-hour audit | 29 selected tests from [`FAILURE_TEST_MATRIX.md`](FAILURE_TEST_MATRIX.md) | Pass |
 | Windows CI on Python 3.12 and 3.13 | GitHub Actions run [31567017037](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31567017037) | Pass |
-| Frozen desktop runtime | `dist/Meeting Transcriber/MeetingTranscriber.exe --package-smoke-test` after a clean PyInstaller analysis | Pass |
+| Frozen desktop runtime | Local clean PyInstaller build and the extracted hosted portable `MeetingTranscriber.exe --package-smoke-test` | Pass; hosted process exit code 0 and version 0.1.0 |
 | Installer compilation, archive, checksums, provenance, and artifact upload | GitHub Actions run [31567017072](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31567017072) completed every required untagged step | Pass |
 | Hosted artifact identity | `meeting-transcriber-windows-31567017072`, 224,055,718-byte upload containing the installer, portable ZIP, and checksum manifest | Pass |
 | Hosted artifact integrity | Downloaded both files; calculated SHA-256 values matched `SHA256SUMS.txt`; `gh attestation verify` succeeded for each file | Pass |
@@ -47,7 +47,7 @@ Do not turn a row into “pass” based only on unit tests or a simulated device
 | Optional remote-speaker model | Accept the gated Community-1 terms, use a temporary token, verify local inference and retained fallback behavior | Not run |
 | Accessibility | Keyboard-only run, visible focus, screen-reader labels, 200% scaling, and Windows high-contrast evidence | Automated names/shortcuts pass; assistive-technology run not performed |
 | Uninstall data safety | Uninstall and prove application files are removed while meetings, transcripts, reviews, notes, and model caches remain | Not run |
-| Authenticode | Configure the certificate secrets and verify application/installer signatures and timestamp chains | Not configured |
+| Authenticode | Configure the certificate secrets and verify application/installer signatures and timestamp chains | Hosted application and installer confirmed `NotSigned`; secrets not configured |
 | Tagged release publication | After every external gate passes, push the annotated tag and verify the exact published release artifacts again | Waiting for external gates; no tag created |
 
 ## Release decision
