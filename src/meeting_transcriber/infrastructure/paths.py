@@ -27,5 +27,9 @@ def default_first_run_state_file() -> Path:
     return default_application_data_directory() / "first-run.json"
 
 
+def default_application_settings_file() -> Path:
+    return default_application_data_directory() / "settings.json"
+
+
 def application_icon_path() -> Path:
     return Path(__file__).resolve().parents[1] / "assets" / "meeting-transcriber.svg"

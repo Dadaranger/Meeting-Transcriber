@@ -201,8 +201,10 @@ identity, and the 60-minute target-hardware scenario remain release gates.
 
 The first-run readiness screen now checks storage, audio enumeration, the offline
 transcription runtime/model cache, and optional diarization without recording or
-downloading. Completion is persisted locally. Keyboard navigation has documented
-shortcuts, explicit control names, and visible high-contrast focus borders. A single
+downloading. Completion and the user-selected meeting folder are persisted locally;
+switching folders never moves or deletes existing meeting data. Keyboard navigation
+has documented shortcuts, explicit control names, and visible high-contrast focus
+borders. A single
 release-readiness script runs the full suite, the failure-injection matrix, the
 synthetic 60-minute audit, and the frozen application build. Real assistive-technology
 and target-hardware evidence remain checklist gates.

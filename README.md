@@ -63,6 +63,9 @@ free meeting storage, enumerates microphone and system-loopback devices, reports
 offline transcription runtime and cached models, and inspects optional diarization.
 These checks do not record audio or download anything. Navigation shortcuts are
 `Alt+1` (Home), `Alt+2` (History), `Alt+3` (Diagnostics), and `Ctrl+N` (new meeting).
+The meeting folder can be changed from Diagnostics; the selection survives restart,
+and existing meetings remain in their previous folder rather than being moved or
+deleted.
 
 History can also open an in-app transcript review screen. Speaker/source labels,
 segment speaker assignments, and important segment text can be corrected one change
@@ -96,7 +99,7 @@ metrics. A real 60-minute hardware soak and representative accuracy samples are
 still required before a release. Baseline Markdown export, durable transcript
 correction and speaker reassignment, review cues, and optional remote voice
 diarization are implemented. Editable structured notes are also complete; release
-packaging remains the active product milestone.
+qualification on target Windows hardware remains the active product milestone.
 
 ## Run the development application
 

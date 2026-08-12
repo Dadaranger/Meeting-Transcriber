@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QInputDialog, QMessageBox, QPushButton
+from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QPushButton
 from pytestqt.qtbot import QtBot
 
 from meeting_transcriber.app.recording_service import RecordingLevels, RecordingStopResult
@@ -31,6 +31,7 @@ from meeting_transcriber.domain.transcript import (
     TranscriptSource,
     TranscriptSpeaker,
 )
+from meeting_transcriber.storage.application_settings_store import ApplicationSettingsStore
 from meeting_transcriber.storage.first_run_store import FirstRunStore
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.review_store import ReviewStore
@@ -357,6 +358,51 @@ def test_main_window_controls_have_keyboard_routes_and_accessible_names(
     assert window.diagnostics_button.shortcut().toString() == "Alt+3"
     assert window.new_meeting_shortcut.key().toString() == "Ctrl+N"
     assert all(button.accessibleName() for button in window.findChildren(QPushButton))
+
+
+def test_user_can_persist_and_switch_the_meeting_storage_folder(
+    qtbot: QtBot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_root = tmp_path / "meetings-a"
+    second_root = tmp_path / "meetings-b"
+    settings = ApplicationSettingsStore(tmp_path / "settings" / "settings.json")
+    settings.set_meetings_directory(first_root)
+    first_run = FirstRunStore(tmp_path / "settings" / "first-run.json")
+    first_run.mark_complete()
+    window = MainWindow(
+        audio_backend=FakeAudioDiscovery(),
+        first_run_store=first_run,
+        application_settings_store=settings,
+    )
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        QFileDialog,
+        "getExistingDirectory",
+        lambda *args, **kwargs: str(second_root),
+    )
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.diagnostics_page.choose_meeting_folder_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert settings.meetings_directory(first_root) == second_root
+    assert window.session_service.store.root == second_root
+    assert window.transcript_store.meeting_root == second_root
+    assert window.diagnostics_page.meeting_root == second_root
+    assert "existing meetings remain" in window.statusBar().currentMessage()
+
+    restarted = MainWindow(
+        audio_backend=FakeAudioDiscovery(),
+        first_run_store=first_run,
+        application_settings_store=settings,
+    )
+    qtbot.addWidget(restarted)
+
+    assert restarted.session_service.store.root == second_root
+    assert restarted.diagnostics_page.meeting_root == second_root
 
 
 def test_consent_gated_ui_starts_and_stops_visible_recording(

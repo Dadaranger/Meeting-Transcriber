@@ -9,6 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal, qVersion
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -51,6 +52,7 @@ from meeting_transcriber.capture.windows_pyaudio import (
 from meeting_transcriber.domain.session import SessionState
 from meeting_transcriber.domain.transcript import TranscriptionJobState, TranscriptionProfile
 from meeting_transcriber.infrastructure.paths import (
+    default_application_settings_file,
     default_first_run_state_file,
     default_meetings_directory,
     default_models_directory,
@@ -59,6 +61,7 @@ from meeting_transcriber.processing.runtime_diagnostics import (
     inspect_diarization_runtime,
     inspect_transcription_runtime,
 )
+from meeting_transcriber.storage.application_settings_store import ApplicationSettingsStore
 from meeting_transcriber.storage.first_run_store import FirstRunStore
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.review_store import ReviewStore
@@ -340,6 +343,7 @@ class DiagnosticCard(QFrame):
 
 class DiagnosticsPage(QWidget):
     setup_completed = Signal()
+    meeting_folder_change_requested = Signal()
 
     def __init__(
         self,
@@ -369,17 +373,17 @@ class DiagnosticsPage(QWidget):
         root.addWidget(DiagnosticCard("Operating system", platform.platform()))
         root.addWidget(DiagnosticCard("Python", sys.version.split()[0]))
         root.addWidget(DiagnosticCard("Qt", qVersion()))
-        root.addWidget(
-            DiagnosticCard(
-                "Default meeting folder",
-                str(default_meetings_directory()),
-            )
-        )
+        storage_row = QHBoxLayout()
         self.storage_card = DiagnosticCard(
             "Meeting storage",
-            "Not checked - run readiness checks to inspect available space.",
+            f"Not checked - current meeting folder:\n{self.meeting_root}",
         )
-        root.addWidget(self.storage_card)
+        storage_row.addWidget(self.storage_card, 1)
+        self.choose_meeting_folder_button = QPushButton("Choose meeting folder")
+        self.choose_meeting_folder_button.setAccessibleName("Choose meeting storage folder")
+        self.choose_meeting_folder_button.clicked.connect(self.meeting_folder_change_requested.emit)
+        storage_row.addWidget(self.choose_meeting_folder_button)
+        root.addLayout(storage_row)
         self.transcription_card = DiagnosticCard(
             "Offline transcription runtime",
             "Not checked - run readiness checks to inspect local dependencies and model cache.",
@@ -435,6 +439,10 @@ class DiagnosticsPage(QWidget):
             return
         self.storage_card.set_value(f"{status.display_text}\nMeeting folder: {self.meeting_root}")
 
+    def set_meeting_root(self, meeting_root: Path) -> None:
+        self.meeting_root = meeting_root
+        self._refresh_storage()
+
     def _refresh_transcription_runtime(self) -> None:
         self.transcription_card.set_value(inspect_transcription_runtime(self.model_root).summary)
 
@@ -462,17 +470,29 @@ class MainWindow(QMainWindow):
         folder_opener: Callable[[Path], bool] | None = None,
         transcription_service: TranscriptionWorkflow | None = None,
         first_run_store: FirstRunStore | None = None,
+        application_settings_store: ApplicationSettingsStore | None = None,
     ):
         super().__init__()
         uses_default_storage = session_service is None
-        self.session_service = session_service or MeetingSessionService(
-            SessionStore(default_meetings_directory())
+        self.application_settings_store = application_settings_store or (
+            ApplicationSettingsStore(default_application_settings_file())
+            if uses_default_storage
+            else None
         )
+        meeting_root = (
+            self.application_settings_store.meetings_directory(default_meetings_directory())
+            if self.application_settings_store is not None
+            else default_meetings_directory()
+        )
+        self.session_service = session_service or MeetingSessionService(SessionStore(meeting_root))
         self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
         self.first_run_store = first_run_store or (
             FirstRunStore(default_first_run_state_file()) if uses_default_storage else None
         )
         self.folder_opener = folder_opener or open_local_folder
+        self._owns_storage_services = (
+            uses_default_storage and recording_service is None and transcription_service is None
+        )
         self.notes_store = MeetingNotesStore(self.session_service.store.root)
         self.transcript_store = TranscriptStore(self.session_service.store.root)
         self.review_store = ReviewStore(self.session_service.store.root)
@@ -544,6 +564,10 @@ class MainWindow(QMainWindow):
             meeting_root=self.session_service.store.root,
         )
         self.diagnostics_page.setup_completed.connect(self._complete_first_run_setup)
+        self.diagnostics_page.meeting_folder_change_requested.connect(self._choose_meeting_folder)
+        self.diagnostics_page.choose_meeting_folder_button.setEnabled(
+            self._owns_storage_services and self.application_settings_store is not None
+        )
         self.pages.addWidget(self.diagnostics_page)
 
         shell_layout.addWidget(sidebar)
@@ -595,6 +619,84 @@ class MainWindow(QMainWindow):
                 return
         self._show_home()
         self.statusBar().showMessage("First-run setup complete - ready for a meeting", 8_000)
+
+    def _choose_meeting_folder(self) -> None:
+        settings_store = self.application_settings_store
+        if (
+            not self._owns_storage_services
+            or settings_store is None
+            or self.recording_service.is_recording
+            or self.recording_service.is_preflighting
+            or self.transcription_service.is_processing
+        ):
+            return
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Choose meeting storage folder",
+            str(self.session_service.store.root),
+        )
+        if not selected:
+            return
+        meeting_root = Path(selected).resolve()
+        if meeting_root == self.session_service.store.root.resolve():
+            return
+        try:
+            meeting_root.mkdir(parents=True, exist_ok=True)
+            DiskSpaceChecker(meeting_root).check()
+            abandoned_count, transcription_count = self._replace_storage_services(
+                meeting_root,
+                settings_store,
+            )
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Meeting folder could not be changed", str(error))
+            return
+        self.diagnostics_page.set_meeting_root(meeting_root)
+        status = "Meeting folder changed; existing meetings remain in their previous folder"
+        if abandoned_count or transcription_count:
+            status += (
+                f"; recovered {abandoned_count} recording and "
+                f"{transcription_count} transcription state(s)"
+            )
+        self.statusBar().showMessage(status, 10_000)
+
+    def _replace_storage_services(
+        self,
+        meeting_root: Path,
+        settings_store: ApplicationSettingsStore,
+    ) -> tuple[int, int]:
+        session_service = MeetingSessionService(SessionStore(meeting_root))
+        transcript_store = TranscriptStore(meeting_root)
+        review_store = ReviewStore(meeting_root)
+        notes_store = MeetingNotesStore(meeting_root)
+        recording_service = MeetingRecordingService(
+            session_service,
+            self.audio_backend,
+            PyAudioWPatchStreamFactory(),
+        )
+        transcription_service = MeetingTranscriptionService(
+            session_service,
+            transcript_store,
+            default_models_directory(),
+            review_store=review_store,
+        )
+        abandoned_sessions = session_service.recover_abandoned_recordings()
+        recovered_transcriptions = transcription_service.recover_interrupted_jobs()
+        settings_store.set_meetings_directory(meeting_root)
+
+        self.session_service = session_service
+        self.notes_store = notes_store
+        self.transcript_store = transcript_store
+        self.review_store = review_store
+        self.review_service = MeetingReviewService(
+            session_service,
+            transcript_store,
+            review_store,
+            notes_store,
+        )
+        self.recording_service = recording_service
+        self.transcription_service = transcription_service
+        self._refresh_history()
+        return len(abandoned_sessions), len(recovered_transcriptions)
 
     def _ensure_control_accessible_names(self) -> None:
         for button in self.findChildren(QPushButton):
