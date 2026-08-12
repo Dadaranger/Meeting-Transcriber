@@ -6,7 +6,7 @@ evidence record, not a substitute for [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST
 
 ## Audited application checkpoint
 
-- Application commit: `d6ed62c` (`codex/storage-location-settings`, PR
+- Application commit: `6758a73` (`codex/storage-location-settings`, PR
   [#15](https://github.com/Dadaranger/Meeting-Transcriber/pull/15))
 - Audit host: Windows 10 `10.0.19045`, Python 3.13.9
 - Audit date: 2026-08-11
@@ -17,12 +17,13 @@ evidence record, not a substitute for [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST
 | Requirement | Evidence | Result |
 | --- | --- | --- |
 | Repeatable locked checks | `scripts/release_readiness.ps1` ran the locked sync, formatting, lint, strict typing, full tests, failure gates, and frozen build | Pass |
-| Unit, integration, and UI behavior | 156 tests | Pass |
+| Unit, integration, and UI behavior | 157 tests | Pass |
 | Failure injection and synthetic one-hour audit | 29 selected tests from [`FAILURE_TEST_MATRIX.md`](FAILURE_TEST_MATRIX.md) | Pass |
-| Windows CI on Python 3.12 and 3.13 | GitHub Actions run [31566086849](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31566086849) | Pass |
+| Windows CI on Python 3.12 and 3.13 | GitHub Actions run [31567017037](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31567017037) | Pass |
 | Frozen desktop runtime | `dist/Meeting Transcriber/MeetingTranscriber.exe --package-smoke-test` after a clean PyInstaller analysis | Pass |
-| Installer compilation, archive, checksums, and provenance | GitHub Actions run [31565444609](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31565444609) reached and passed these steps | Pass |
-| Artifact upload | The same run rejected `meeting-transcriber-windows-13/merge` because an artifact name cannot contain `/` | Pending focused workflow fix |
+| Installer compilation, archive, checksums, provenance, and artifact upload | GitHub Actions run [31567017072](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31567017072) completed every required untagged step | Pass |
+| Hosted artifact identity | `meeting-transcriber-windows-31567017072`, 224,055,718-byte upload containing the installer, portable ZIP, and checksum manifest | Pass |
+| Hosted artifact integrity | Downloaded both files; calculated SHA-256 values matched `SHA256SUMS.txt`; `gh attestation verify` succeeded for each file | Pass |
 
 The automated tests cover consent-gated dual-source capture orchestration, pause and
 resume, chunk finalization, interrupted-session recovery, offline-only cache failure,
@@ -47,7 +48,7 @@ Do not turn a row into “pass” based only on unit tests or a simulated device
 | Accessibility | Keyboard-only run, visible focus, screen-reader labels, 200% scaling, and Windows high-contrast evidence | Automated names/shortcuts pass; assistive-technology run not performed |
 | Uninstall data safety | Uninstall and prove application files are removed while meetings, transcripts, reviews, notes, and model caches remain | Not run |
 | Authenticode | Configure the certificate secrets and verify application/installer signatures and timestamp chains | Not configured |
-| Published artifact verification | Verify checksums and `gh attestation verify` against the successfully uploaded release artifacts | Waiting for artifact upload fix |
+| Tagged release publication | After every external gate passes, push the annotated tag and verify the exact published release artifacts again | Waiting for external gates; no tag created |
 
 ## Release decision
 
