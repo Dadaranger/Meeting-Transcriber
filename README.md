@@ -39,10 +39,15 @@ and the live screen keeps independent source levels, elapsed active time,
 pause/resume, and stop controls visible. Consent version, capture scope, session
 state, WAV chunks, and capture timing are persisted locally.
 
-The History page identifies abandoned recordings after restart, only offers
-recovery when a capture manifest and finalized WAV chunks exist, and can open the
-exact local meeting folder. A timed preflight source test, disk-space indicator,
-long-session soak testing, transcription, and structured export remain upcoming.
+The setup screen can run a consent-gated five-second source test without saving
+audio. Recording is blocked at critically low disk space and remaining capacity is
+shown throughout capture. The History page identifies abandoned recordings after
+restart, only offers recovery when a capture manifest and finalized WAV chunks
+exist, and can open the exact local meeting folder.
+
+Automated checks now exercise forced process termination and a simulated 60-minute
+dual-source journal. A real 60-minute hardware soak is still required before a
+release; transcription and structured export are the next product milestones.
 
 ## Run the development application
 
@@ -75,6 +80,21 @@ to the capture backend. It does not open a stream or record audio.
 ```powershell
 uv run meeting-transcriber-audio-devices
 ```
+
+## Audit a completed capture
+
+This read-only command validates WAV headers, chunk sequence and continuity, and
+the 250 ms dual-source alignment target. For an uninterrupted 60-minute hardware
+soak, run:
+
+```powershell
+uv run meeting-transcriber-capture-audit "C:\path\to\meeting-session" `
+  --min-duration-minutes 60 --max-drift-ms 250 --max-gap-ms 0
+```
+
+Omit `--max-gap-ms` for a meeting that was intentionally paused. Add `--json` for
+machine-readable output. The audit never opens an audio device or modifies the
+meeting.
 
 ## Important limitation
 

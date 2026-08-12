@@ -48,6 +48,8 @@ Validation grows with the project:
 - Documentation-only changes: link/path inspection and whitespace checks
 - Domain/storage changes: unit tests and schema/migration tests
 - Capture changes: unit tests plus recorded-device smoke tests
+- Long-capture changes: simulated 60-minute manifests plus a documented real
+  hardware soak using `meeting-transcriber-capture-audit`
 - Processing changes: unit tests plus deterministic audio fixtures
 - UI changes: application smoke test and targeted interaction tests
 - Packaging changes: install/launch/uninstall on a clean Windows environment

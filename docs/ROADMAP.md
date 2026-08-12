@@ -78,11 +78,14 @@ allows replacing it without changing application or UI code.
 - Forced termination loses no more than the active chunk.
 - A recovered session can proceed to processing.
 
-**Current implementation status:** consent/preflight device review, live dual
-meters, start/pause/resume/stop, atomic state transitions, interrupted-session
-detection, artifact-gated recovery, meeting history, and open-folder actions are
-implemented. A timed source test, disk-space indicator, forced-termination test,
-and long-session soak validation remain before Milestone 3 is closed.
+**Current implementation status:** consent/preflight device review, a timed
+no-save source test, live dual meters, disk-space safeguards,
+start/pause/resume/stop, atomic state transitions, interrupted-session detection,
+artifact-gated recovery, meeting history, and open-folder actions are implemented.
+A child-process forced-termination test verifies recovery, and the capture-audit
+command enforces chunk integrity and the 250 ms alignment target against a
+simulated 60-minute journal. The remaining release evidence is a real 60-minute
+Windows hardware soak using that audit command.
 
 ## Milestone 4 — Offline transcription
 

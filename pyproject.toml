@@ -28,6 +28,7 @@ dev = [
 [project.scripts]
 meeting-transcriber = "meeting_transcriber.main:main"
 meeting-transcriber-audio-devices = "meeting_transcriber.capture.diagnostics:main"
+meeting-transcriber-capture-audit = "meeting_transcriber.capture.audit:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/meeting_transcriber"]

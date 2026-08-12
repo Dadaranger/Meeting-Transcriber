@@ -105,15 +105,21 @@ schema-v1 session remains readable but is not accepted as current consent. The
 recording application service enforces this startup order:
 
 1. Require the explicit acknowledgement from the current setup screen.
-2. Rediscover and validate the selected microphone and loopback endpoints.
-3. Persist current, source-specific consent.
-4. Persist the session's transition to `recording`.
-5. Construct and start both capture streams.
-6. Mark the session `interrupted` if startup or shutdown fails.
+2. Verify that the meeting volume is above the critical free-space threshold.
+3. Rediscover and validate the selected microphone and loopback endpoints.
+4. Persist current, source-specific consent.
+5. Persist the session's transition to `recording`.
+6. Construct and start both capture streams.
+7. Mark the session `interrupted` if startup or shutdown fails.
 
 The UI only displays its recording state after the capture coordinator reports a
 successful start. Device enumeration is read-only and may occur before consent;
 opening a stream may not.
+
+The optional source test follows the same acknowledgement, endpoint-validation,
+and consent-persistence boundary, but reads only enough PCM to publish levels. It
+does not create a capture journal or WAV file and both streams close after five
+seconds. Starting a recording while the test owns the devices is prohibited.
 
 ## Audio capture design
 
@@ -256,6 +262,8 @@ does not silently overwrite them.
 - Integration-test capture against synthetic/virtual devices where practical.
 - Maintain short, licensed audio fixtures with known words and speaker turns.
 - Add a one-hour soak test for clock drift, disk use, memory, and recovery.
+- Audit real soak manifests for WAV/header integrity, chunk sequence and timeline
+  continuity, minimum duration, and no more than 250 ms end-alignment drift.
 - Test CPU-only systems as the baseline; CUDA is an acceleration path.
 - Build the Windows artifact in CI and smoke-test it on a clean virtual machine.
 
