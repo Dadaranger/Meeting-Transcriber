@@ -257,13 +257,19 @@ class TranscriptStore:
 
     def load_transcript(self, session_id: str, run_id: str | None = None) -> TranscriptDocument:
         path = self.transcript_file(session_id, run_id)
-        document = self._load_document(path, "Transcript")
-        transcript = _parse_transcript(document)
+        transcript = self.load_transcript_path(path)
         if transcript.session_id != str(UUID(session_id)):
             raise TranscriptDataError("Transcript session ID does not match its directory")
         if run_id is not None and transcript.run_id != str(UUID(run_id)):
             raise TranscriptDataError("Transcript run ID does not match its filename")
         return transcript
+
+    @staticmethod
+    def load_transcript_path(path: Path) -> TranscriptDocument:
+        """Load a transcript artifact without assuming its meeting-root location."""
+
+        document = TranscriptStore._load_document(path, "Transcript")
+        return _parse_transcript(document)
 
     def save_job(self, job: TranscriptionJob) -> Path:
         path = self.job_file(job.session_id)
