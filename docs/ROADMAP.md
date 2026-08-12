@@ -133,6 +133,12 @@ corrected by the user.
 - Renaming a speaker updates every associated segment without altering audio.
 - User corrections survive re-export and are not overwritten silently.
 
+**Current implementation status:** channel-aware local/remote attribution, the
+transcript review screen, source-label renaming, segment text correction, reset to
+model output, immutable review revisions, and Markdown regeneration are implemented.
+Optional remote-voice diarization, anonymous clusters, segment reassignment, and
+overlap treatment remain planned.
+
 ## Milestone 6 — Structured export
 
 **Outcome:** each session produces a polished meeting document and canonical data.

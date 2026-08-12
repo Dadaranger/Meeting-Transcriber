@@ -186,7 +186,11 @@ Meetings/
         <run-id>.json
       meeting-notes/
         <run-id>.md
+      reviews/
+        <run-id>/
+          revision-000001.json
     transcript.json
+    transcript-review.json
     meeting-notes.md
     logs/
       processing.log
@@ -201,6 +205,20 @@ stream, so they transition to `interrupted`. The application labels a session
 recoverable only when both `capture.json` and at least one finalized WAV chunk are
 present. Explicit recovery advances that session to `recorded`; missing-artifact
 sessions remain interrupted for diagnostics.
+
+## Review overlay
+
+`transcript.json` is immutable model output. User changes are stored separately in
+`transcript-review.json` as sparse speaker-name and segment-text corrections tied to
+one transcript run. Every saved change is also retained under
+`derived/reviews/<run-id>/`, allowing audit and recovery without copying the full
+transcript.
+
+Rendering applies the current review overlay to the canonical transcript in memory,
+then writes `meeting-notes.md`; it never rewrites `transcript.json`. A new
+transcription run may inherit stable speaker-name corrections for matching speaker
+IDs, but it drops segment-text corrections because segment IDs and model output are
+run-specific.
 
 ## Canonical transcript schema (conceptual)
 

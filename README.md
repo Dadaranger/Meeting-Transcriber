@@ -58,11 +58,18 @@ meeting metadata, participant/source labels, timestamps, and the complete
 conversation. History marks sessions whose notes are ready and can open the file
 directly. Prior rendered runs are retained under `derived/meeting-notes/`.
 
+History can also open an in-app transcript review screen. Speaker/source labels and
+important segment text can be corrected one change at a time; each change updates
+the Markdown notes and creates a retained review revision without altering the
+original model transcript. When a meeting is transcribed again, stable speaker names
+carry forward but run-specific text corrections do not.
+
 Automated checks exercise forced process termination, a simulated 60-minute
 dual-source journal, persisted transcription recovery, and deterministic accuracy
 metrics. A real 60-minute hardware soak and representative accuracy samples are
-still required before a release. Baseline Markdown export is implemented; speaker
-correction and editable summary/action sections remain active product milestones.
+still required before a release. Baseline Markdown export and durable transcript
+correction are implemented; remote voice diarization, segment reassignment, and
+editable summary/action sections remain active product milestones.
 
 ## Run the development application
 
