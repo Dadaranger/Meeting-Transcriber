@@ -24,6 +24,7 @@ evidence record, not a substitute for [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST
 | Installer compilation, archive, checksums, provenance, and artifact upload | GitHub Actions run [31567017072](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31567017072) completed every required untagged step | Pass |
 | Hosted artifact identity | `meeting-transcriber-windows-31567017072`, 224,055,718-byte upload containing the installer, portable ZIP, and checksum manifest | Pass |
 | Hosted artifact integrity | Downloaded both files; calculated SHA-256 values matched `SHA256SUMS.txt`; `gh attestation verify` succeeded for each file | Pass |
+| Real Windows device enumeration | `meeting-transcriber-audio-devices` found two WASAPI microphone inputs and one default 48 kHz WASAPI loopback endpoint without opening a stream | Pass for discovery only |
 
 The automated tests cover consent-gated dual-source capture orchestration, pause and
 resume, chunk finalization, interrupted-session recovery, offline-only cache failure,
@@ -40,7 +41,7 @@ Do not turn a row into “pass” based only on unit tests or a simulated device
 | Gate | Required evidence | Status |
 | --- | --- | --- |
 | Clean-machine installer | Install and launch the exact GitHub artifact on Windows 10 and Windows 11 x64 with no Python | Not run |
-| Real meeting capture | Microphone and selected WASAPI loopback both produce audible finalized chunks; device loss is reported clearly | Not run |
+| Real meeting capture | Microphone and selected WASAPI loopback both produce audible finalized chunks; device loss is reported clearly | Device discovery passed; recording not run |
 | Long-session reliability | Real uninterrupted 60-minute dual-source meeting plus capture-audit output showing no gaps and no more than 250 ms drift | Not run |
 | Offline speech accuracy | Human-reviewed representative samples for each intended language/profile with evaluator JSON, timing, CPU, memory, and real-time factor | Not run; no speech-model cache was present on the audit host |
 | Cached/offline model behavior | Explicitly approve one model download, disconnect networking, then transcribe from the retained cache | Not run |
