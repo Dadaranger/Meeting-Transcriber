@@ -101,6 +101,33 @@ uv sync --extra dev --extra transcription --extra diarization
 uv run meeting-transcriber
 ```
 
+## Build the Windows desktop application
+
+On Windows, the locked release build creates a portable application that includes
+Python, Qt, WASAPI capture, and the offline faster-whisper runtime:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
+```
+
+The script performs a frozen-runtime smoke test and writes
+`dist\Meeting Transcriber\MeetingTranscriber.exe`. It does not bundle speech-model
+weights; the app downloads the selected model only after explicit approval. The
+optional pyannote diarization runtime is not included in the standard installer, so
+remote speech still transcribes with the safe combined `Remote speakers` label when
+that runtime is unavailable.
+
+With Inno Setup 6 installed, create the per-user installer, portable ZIP, and
+checksums with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.0
+```
+
+The installer never deletes meeting data or model caches during uninstall. See
+[`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for signing and clean-machine
+release evidence.
+
 Open **Diagnostics** and select **Refresh speaker runtime** to check the pyannote
 runtime, pinned model cache, PyTorch CPU/CUDA capability, and model folder. The app
 preloads its normalized PCM audio in memory, so diarization does not depend on an

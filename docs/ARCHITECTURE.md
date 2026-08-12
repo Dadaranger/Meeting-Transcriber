@@ -234,6 +234,21 @@ transcription run may inherit stable speaker-name corrections for matching speak
 IDs plus the meeting-level summary, decisions, and action items. It drops segment-text
 and segment-speaker corrections because segment IDs and model output are run-specific.
 
+## Windows distribution
+
+The standard Windows release is a PyInstaller one-directory bundle. It contains the
+Python runtime, PySide6/Qt, PyAudioWPatch/PortAudio, faster-whisper, CTranslate2, and
+their native libraries, but downloads speech-model weights only after the user's
+explicit approval. The standard bundle intentionally excludes the much larger
+optional pyannote/PyTorch diarization runtime; the application retains its combined
+remote-speaker fallback when that stage is unavailable.
+
+Inno Setup installs the bundle under the current user's Local App Data without
+elevation. Meeting data under Documents and model caches under application data are
+not installer-owned files, so uninstall removes the application without deleting
+user artifacts. The release workflow produces hashes and GitHub provenance
+attestations; Authenticode signing is conditional on configured certificate secrets.
+
 ## Canonical transcript schema (conceptual)
 
 ```json

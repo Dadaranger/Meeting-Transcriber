@@ -17,3 +17,7 @@ def default_models_directory() -> Path:
     if not application_data:
         application_data = str(Path.home() / ".meeting-transcriber")
     return Path(application_data) / "models"
+
+
+def application_icon_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "assets" / "meeting-transcriber.svg"

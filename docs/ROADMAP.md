@@ -189,6 +189,16 @@ across later transcript runs.
 - Uninstalling never deletes meeting data without explicit confirmation.
 - The release passes the 60-minute end-to-end scenario.
 
+**Current implementation status:** a pinned PyInstaller build now produces a
+Python-free Windows application bundle with icon/version resources and a frozen
+Whisper/WASAPI smoke test. An Inno Setup definition installs per user and deliberately
+leaves recordings, transcripts, notes, reviews, and model caches outside uninstall
+scope. GitHub Actions builds the installer and portable archive, writes SHA-256
+checksums, creates provenance attestations, optionally Authenticode-signs with
+repository secrets, and publishes version tags. Clean-machine install/uninstall,
+real hardware capture, gated-model verification, accessibility evidence, code-signing
+identity, and the 60-minute target-hardware scenario remain release gates.
+
 ## Later roadmap
 
 - Real-time partial transcripts
