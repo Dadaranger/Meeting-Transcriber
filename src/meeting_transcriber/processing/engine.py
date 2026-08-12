@@ -123,7 +123,7 @@ def _load_whisper_model(
     local_files_only: bool,
 ) -> _WhisperModel:
     try:
-        from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+        from faster_whisper import WhisperModel  # type: ignore[import-untyped]
     except ImportError as error:
         raise TranscriptionDependencyUnavailable(
             "Install the transcription extra before loading a local speech model"

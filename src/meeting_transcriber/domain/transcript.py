@@ -22,6 +22,7 @@ class TranscriptionJobState(StrEnum):
     PENDING = "pending"
     PREPARING = "preparing"
     TRANSCRIBING = "transcribing"
+    DIARIZING = "diarizing"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
@@ -39,6 +40,14 @@ ALLOWED_JOB_TRANSITIONS: Final[dict[TranscriptionJobState, frozenset[Transcripti
         }
     ),
     TranscriptionJobState.TRANSCRIBING: frozenset(
+        {
+            TranscriptionJobState.DIARIZING,
+            TranscriptionJobState.COMPLETED,
+            TranscriptionJobState.CANCELLED,
+            TranscriptionJobState.FAILED,
+        }
+    ),
+    TranscriptionJobState.DIARIZING: frozenset(
         {
             TranscriptionJobState.COMPLETED,
             TranscriptionJobState.CANCELLED,
@@ -191,7 +200,7 @@ class TranscriptDocument:
 
 @dataclass(frozen=True, slots=True)
 class TranscriptionJob:
-    SCHEMA_VERSION: ClassVar[int] = 1
+    SCHEMA_VERSION: ClassVar[int] = 2
 
     job_id: str
     session_id: str
@@ -204,6 +213,10 @@ class TranscriptionJob:
     processed_audio_ms: int = 0
     total_audio_ms: int = 0
     error: str | None = None
+    separate_remote_speakers: bool = False
+    min_remote_speakers: int | None = None
+    max_remote_speakers: int | None = None
+    warning: str | None = None
 
     def __post_init__(self) -> None:
         UUID(self.job_id)
@@ -222,6 +235,22 @@ class TranscriptionJob:
             raise ValueError("Failed transcription jobs require an error")
         if self.state is not TranscriptionJobState.FAILED and self.error is not None:
             raise ValueError("Only failed transcription jobs may retain an error")
+        if self.warning is not None and not self.warning.strip():
+            raise ValueError("Transcription warning cannot be blank")
+        if self.min_remote_speakers is not None and self.min_remote_speakers < 1:
+            raise ValueError("Minimum remote speaker count must be positive")
+        if self.max_remote_speakers is not None and self.max_remote_speakers < 1:
+            raise ValueError("Maximum remote speaker count must be positive")
+        if (
+            self.min_remote_speakers is not None
+            and self.max_remote_speakers is not None
+            and self.min_remote_speakers > self.max_remote_speakers
+        ):
+            raise ValueError("Minimum remote speaker count cannot exceed the maximum")
+        if not self.separate_remote_speakers and (
+            self.min_remote_speakers is not None or self.max_remote_speakers is not None
+        ):
+            raise ValueError("Remote speaker limits require remote speaker separation")
 
     @classmethod
     def new(
@@ -230,6 +259,9 @@ class TranscriptionJob:
         *,
         profile: TranscriptionProfile = TranscriptionProfile.BALANCED,
         language: str | None = None,
+        separate_remote_speakers: bool = False,
+        min_remote_speakers: int | None = None,
+        max_remote_speakers: int | None = None,
         job_id: str | None = None,
         created_at: datetime | None = None,
     ) -> TranscriptionJob:
@@ -242,6 +274,9 @@ class TranscriptionJob:
             language=language.strip() if language is not None else None,
             created_at=timestamp,
             updated_at=timestamp,
+            separate_remote_speakers=separate_remote_speakers,
+            min_remote_speakers=min_remote_speakers,
+            max_remote_speakers=max_remote_speakers,
         )
 
     @property
@@ -298,6 +333,12 @@ class TranscriptionJob:
             updated_at=_utc_timestamp(at),
         )
 
+    def with_warning(self, warning: str, *, at: datetime | None = None) -> TranscriptionJob:
+        normalized = warning.strip()
+        if not normalized:
+            raise ValueError("Transcription warning cannot be blank")
+        return replace(self, warning=normalized, updated_at=_utc_timestamp(at))
+
     def retry(self, *, at: datetime | None = None) -> TranscriptionJob:
         if TranscriptionJobState.PENDING not in ALLOWED_JOB_TRANSITIONS[self.state]:
             raise InvalidTranscriptionJobTransition("Only cancelled or failed jobs can retry")
@@ -309,4 +350,5 @@ class TranscriptionJob:
             processed_audio_ms=0,
             total_audio_ms=0,
             error=None,
+            warning=None,
         )

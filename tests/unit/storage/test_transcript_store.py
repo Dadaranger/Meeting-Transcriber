@@ -74,6 +74,9 @@ def test_transcription_job_round_trip_is_separate_from_transcript(tmp_path: Path
         job_id="175ec0b8-bb8c-49c3-9d02-e4b5d6ae3807",
         profile=TranscriptionProfile.BALANCED,
         language="en",
+        separate_remote_speakers=True,
+        min_remote_speakers=2,
+        max_remote_speakers=4,
         created_at=START,
     )
 
@@ -82,6 +85,33 @@ def test_transcription_job_round_trip_is_separate_from_transcript(tmp_path: Path
     assert store.load_job(SESSION_ID) == job
     assert path.name == "transcription-job.json"
     assert path.parent.name == "processing"
+
+
+def test_version_one_transcription_job_loads_with_diarization_disabled(tmp_path: Path) -> None:
+    store = TranscriptStore(tmp_path)
+    job = TranscriptionJob.new(
+        SESSION_ID,
+        job_id="175ec0b8-bb8c-49c3-9d02-e4b5d6ae3807",
+        created_at=START,
+    )
+    path = store.save_job(job)
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["schema_version"] = 1
+    for field in (
+        "separate_remote_speakers",
+        "min_remote_speakers",
+        "max_remote_speakers",
+        "warning",
+    ):
+        document.pop(field)
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    loaded = store.load_job(SESSION_ID)
+
+    assert not loaded.separate_remote_speakers
+    assert loaded.min_remote_speakers is None
+    assert loaded.max_remote_speakers is None
+    assert loaded.warning is None
 
 
 def test_unknown_transcript_schema_is_rejected(tmp_path: Path) -> None:

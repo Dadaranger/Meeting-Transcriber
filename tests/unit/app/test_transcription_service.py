@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event
 
 from meeting_transcriber.app.session_service import MeetingSessionService
-from meeting_transcriber.app.transcription_service import MeetingTranscriptionService
+from meeting_transcriber.app.transcription_service import (
+    MeetingTranscriptionService,
+    RemoteSpeakerProcessor,
+)
+from meeting_transcriber.domain.diarization import DiarizationDocument, DiarizationTurn
 from meeting_transcriber.domain.session import SessionState
 from meeting_transcriber.domain.transcript import (
+    TranscriptDocument,
     TranscriptionJob,
     TranscriptionJobState,
     TranscriptionProfile,
     TranscriptSource,
 )
+from meeting_transcriber.processing.diarization_engine import (
+    DiarizationCancelled,
+    DiarizationRuntimeError,
+)
+from meeting_transcriber.processing.diarization_merge import merge_remote_speakers
 from meeting_transcriber.processing.engine import (
     ChunkTranscription,
     EngineSegment,
@@ -121,6 +132,48 @@ class FakeEngineFactory:
         return self.engines.pop(0)
 
 
+class FakeRemoteSpeakerProcessor:
+    def __init__(self, errors: list[Exception] | None = None):
+        self.errors = errors or []
+        self.calls: list[dict[str, object]] = []
+
+    def separate(
+        self,
+        plan: PreparedAudioPlan,
+        session_directory: Path,
+        transcript: TranscriptDocument,
+        *,
+        allow_download: bool,
+        access_token: str | None,
+        min_speakers: int | None,
+        max_speakers: int | None,
+        cancel_requested: Callable[[], bool],
+    ) -> TranscriptDocument:
+        self.calls.append(
+            {
+                "plan": plan,
+                "session_directory": session_directory,
+                "allow_download": allow_download,
+                "access_token": access_token,
+                "min_speakers": min_speakers,
+                "max_speakers": max_speakers,
+                "cancel_requested": cancel_requested,
+            }
+        )
+        if self.errors:
+            raise self.errors.pop(0)
+        return merge_remote_speakers(
+            transcript,
+            DiarizationDocument.new(
+                transcript.session_id,
+                transcript.run_id,
+                engine="fixture-diarization",
+                model="fixture-speaker-model",
+                turns=(DiarizationTurn(0, 2_000, "remote-1"),),
+            ),
+        )
+
+
 def _recorded_session(service: MeetingSessionService) -> str:
     draft = service.create_draft("Recorded meeting")
     service.confirm_recording_consent(draft.session_id)
@@ -132,6 +185,8 @@ def _recorded_session(service: MeetingSessionService) -> str:
 def _service(
     tmp_path: Path,
     engines: list[FakeEngine],
+    *,
+    remote_speaker_processor: RemoteSpeakerProcessor | None = None,
 ) -> tuple[
     MeetingTranscriptionService,
     MeetingSessionService,
@@ -151,6 +206,7 @@ def _service(
         tmp_path / "models",
         preparer=preparer,
         engine_factory=factory,
+        remote_speaker_processor=remote_speaker_processor,
     )
     return service, sessions, transcripts, preparer, factory, session_id
 
@@ -208,6 +264,107 @@ def test_transcription_cancel_returns_session_to_recorded(tmp_path: Path) -> Non
     assert cancelled.state is TranscriptionJobState.CANCELLED
     assert sessions.get_session(session_id).state is SessionState.RECORDED
     assert not transcripts.transcript_file(session_id).exists()
+
+
+def test_remote_speaker_separation_is_persisted_without_access_token(tmp_path: Path) -> None:
+    processor = FakeRemoteSpeakerProcessor()
+    service, sessions, transcripts, _preparer, factory, session_id = _service(
+        tmp_path,
+        [FakeEngine()],
+        remote_speaker_processor=processor,
+    )
+
+    service.start(
+        session_id,
+        profile=TranscriptionProfile.BALANCED,
+        language="en",
+        hotwords=None,
+        allow_download=False,
+        separate_remote_speakers=True,
+        min_remote_speakers=1,
+        max_remote_speakers=3,
+        diarization_allow_download=True,
+        diarization_access_token="temporary-token",
+    )
+    completed = service.wait()
+
+    assert completed.state is TranscriptionJobState.COMPLETED
+    assert completed.warning is None
+    assert completed.separate_remote_speakers
+    assert sessions.get_session(session_id).state is SessionState.READY
+    assert transcripts.load_transcript(session_id).segments[1].speaker_id == "remote-1"
+    call = processor.calls[0]
+    assert call["min_speakers"] == 1
+    assert call["max_speakers"] == 3
+    assert call["access_token"] == "temporary-token"
+    assert factory.calls == [(TranscriptionProfile.BALANCED, False)]
+    persisted_job = transcripts.job_file(session_id).read_text(encoding="utf-8")
+    assert "temporary-token" not in persisted_job
+
+
+def test_known_diarization_failure_completes_with_raw_transcript_warning(tmp_path: Path) -> None:
+    processor = FakeRemoteSpeakerProcessor(
+        [DiarizationRuntimeError("The optional runtime is not installed")]
+    )
+    service, sessions, transcripts, _preparer, _factory, session_id = _service(
+        tmp_path,
+        [FakeEngine()],
+        remote_speaker_processor=processor,
+    )
+
+    service.start(
+        session_id,
+        profile=TranscriptionProfile.FAST,
+        language="en",
+        hotwords=None,
+        allow_download=False,
+        separate_remote_speakers=True,
+    )
+    completed = service.wait()
+
+    assert completed.state is TranscriptionJobState.COMPLETED
+    assert "optional runtime" in (completed.warning or "")
+    assert sessions.get_session(session_id).state is SessionState.READY
+    assert transcripts.load_transcript(session_id).segments[1].speaker_id == "remote"
+
+
+def test_cancelled_diarization_retry_reuses_raw_transcript_without_whisper(
+    tmp_path: Path,
+) -> None:
+    processor = FakeRemoteSpeakerProcessor(
+        [DiarizationCancelled("Synthetic diarization cancellation")]
+    )
+    service, _sessions, transcripts, preparer, factory, session_id = _service(
+        tmp_path,
+        [FakeEngine()],
+        remote_speaker_processor=processor,
+    )
+    first = service.start(
+        session_id,
+        profile=TranscriptionProfile.BALANCED,
+        language="en",
+        hotwords=None,
+        allow_download=False,
+        separate_remote_speakers=True,
+    )
+    cancelled = service.wait()
+    retried = service.start(
+        session_id,
+        profile=TranscriptionProfile.BALANCED,
+        language="en",
+        hotwords=None,
+        allow_download=False,
+        separate_remote_speakers=True,
+    )
+    completed = service.wait()
+
+    assert cancelled.state is TranscriptionJobState.CANCELLED
+    assert retried.job_id == first.job_id
+    assert completed.state is TranscriptionJobState.COMPLETED
+    assert transcripts.load_transcript(session_id).segments[1].speaker_id == "remote-1"
+    assert len(processor.calls) == 2
+    assert preparer.run_ids == [first.job_id, first.job_id]
+    assert factory.calls == [(TranscriptionProfile.BALANCED, False)]
 
 
 def test_failed_transcription_retry_reuses_run_and_prepared_audio(tmp_path: Path) -> None:

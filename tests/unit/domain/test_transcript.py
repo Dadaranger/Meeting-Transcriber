@@ -144,3 +144,33 @@ def test_completed_job_cannot_transition_again() -> None:
     assert job.processed_audio_ms == 1_000
     with pytest.raises(InvalidTranscriptionJobTransition):
         job.transition(TranscriptionJobState.CANCELLED)
+
+
+def test_remote_speaker_job_tracks_diarization_and_nonfatal_warning() -> None:
+    job = TranscriptionJob.new(
+        SESSION_ID,
+        job_id=JOB_ID,
+        created_at=START,
+        separate_remote_speakers=True,
+        min_remote_speakers=2,
+        max_remote_speakers=4,
+    )
+    job = job.transition(TranscriptionJobState.PREPARING)
+    job = job.with_progress(1_000, 1_000)
+    job = job.transition(TranscriptionJobState.TRANSCRIBING)
+    job = job.transition(TranscriptionJobState.DIARIZING)
+    job = job.with_warning("Optional model unavailable")
+    completed = job.transition(TranscriptionJobState.COMPLETED)
+
+    assert completed.progress == 1.0
+    assert completed.warning == "Optional model unavailable"
+    assert completed.min_remote_speakers == 2
+    assert completed.max_remote_speakers == 4
+
+    with pytest.raises(ValueError, match="cannot exceed"):
+        TranscriptionJob.new(
+            SESSION_ID,
+            separate_remote_speakers=True,
+            min_remote_speakers=3,
+            max_remote_speakers=2,
+        )

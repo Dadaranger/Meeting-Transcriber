@@ -175,9 +175,21 @@ class FakeTranscriptionWorkflow:
         language: str | None,
         hotwords: str | None,
         allow_download: bool,
+        separate_remote_speakers: bool = False,
+        min_remote_speakers: int | None = None,
+        max_remote_speakers: int | None = None,
+        diarization_allow_download: bool = False,
+        diarization_access_token: str | None = None,
     ) -> TranscriptionJob:
-        del hotwords, allow_download
-        job = TranscriptionJob.new(session_id, profile=profile, language=language)
+        del hotwords, allow_download, diarization_allow_download, diarization_access_token
+        job = TranscriptionJob.new(
+            session_id,
+            profile=profile,
+            language=language,
+            separate_remote_speakers=separate_remote_speakers,
+            min_remote_speakers=min_remote_speakers,
+            max_remote_speakers=max_remote_speakers,
+        )
         job = job.transition(TranscriptionJobState.PREPARING)
         job = job.with_progress(0, 2_000)
         self.job = job.transition(TranscriptionJobState.TRANSCRIBING)

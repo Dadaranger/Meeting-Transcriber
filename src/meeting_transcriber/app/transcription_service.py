@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -19,6 +20,10 @@ from meeting_transcriber.domain.transcript import (
     TranscriptSpeaker,
     TranscriptWord,
 )
+from meeting_transcriber.processing.diarization_engine import (
+    DiarizationCancelled,
+    DiarizationRuntimeError,
+)
 from meeting_transcriber.processing.engine import (
     EngineSegment,
     FasterWhisperEngine,
@@ -31,6 +36,7 @@ from meeting_transcriber.processing.preparation import (
     PreparedAudioChunk,
     PreparedAudioPlan,
 )
+from meeting_transcriber.processing.remote_speaker_service import RemoteSpeakerService
 from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.transcript_store import (
@@ -60,6 +66,21 @@ class MeetingNotesWriter(Protocol):
     def save(self, session_id: str, run_id: str, markdown: str) -> Path: ...
 
 
+class RemoteSpeakerProcessor(Protocol):
+    def separate(
+        self,
+        plan: PreparedAudioPlan,
+        session_directory: Path,
+        transcript: TranscriptDocument,
+        *,
+        allow_download: bool,
+        access_token: str | None,
+        min_speakers: int | None,
+        max_speakers: int | None,
+        cancel_requested: Callable[[], bool],
+    ) -> TranscriptDocument: ...
+
+
 class TranscriptionWorkflow(Protocol):
     @property
     def is_processing(self) -> bool: ...
@@ -72,6 +93,11 @@ class TranscriptionWorkflow(Protocol):
         language: str | None,
         hotwords: str | None,
         allow_download: bool,
+        separate_remote_speakers: bool = False,
+        min_remote_speakers: int | None = None,
+        max_remote_speakers: int | None = None,
+        diarization_allow_download: bool = False,
+        diarization_access_token: str | None = None,
     ) -> TranscriptionJob: ...
 
     def cancel(self) -> None: ...
@@ -111,6 +137,7 @@ class MeetingTranscriptionService:
         engine_factory: TranscriptionEngineFactory | None = None,
         notes_store: MeetingNotesWriter | None = None,
         review_store: ReviewStore | None = None,
+        remote_speaker_processor: RemoteSpeakerProcessor | None = None,
     ):
         self.session_service = session_service
         self.transcript_store = transcript_store
@@ -118,6 +145,10 @@ class MeetingTranscriptionService:
         self.engine_factory = engine_factory or _default_engine_factory(model_cache)
         self.notes_store = notes_store or MeetingNotesStore(transcript_store.meeting_root)
         self.review_store = review_store or ReviewStore(transcript_store.meeting_root)
+        self.remote_speaker_processor = remote_speaker_processor or RemoteSpeakerService(
+            transcript_store.meeting_root,
+            model_cache,
+        )
         self._lock = Lock()
         self._cancel_event = Event()
         self._thread: Thread | None = None
@@ -149,6 +180,11 @@ class MeetingTranscriptionService:
         language: str | None,
         hotwords: str | None,
         allow_download: bool,
+        separate_remote_speakers: bool = False,
+        min_remote_speakers: int | None = None,
+        max_remote_speakers: int | None = None,
+        diarization_allow_download: bool = False,
+        diarization_access_token: str | None = None,
     ) -> TranscriptionJob:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
@@ -157,7 +193,14 @@ class MeetingTranscriptionService:
         if session.state not in {SessionState.RECORDED, SessionState.READY, SessionState.EXPORTED}:
             raise TranscriptionWorkflowError("Only a completed recording can be transcribed")
         normalized_language = language.strip() if language and language.strip() else None
-        job = self._new_or_retry_job(session_id, profile, normalized_language)
+        job = self._new_or_retry_job(
+            session_id,
+            profile,
+            normalized_language,
+            separate_remote_speakers,
+            min_remote_speakers,
+            max_remote_speakers,
+        )
         self.transcript_store.save_job(job)
         try:
             self.session_service.transition_state(session_id, SessionState.PROCESSING)
@@ -169,7 +212,13 @@ class MeetingTranscriptionService:
         self._cancel_event = Event()
         worker = Thread(
             target=self._run,
-            args=(job, hotwords.strip() if hotwords and hotwords.strip() else None, allow_download),
+            args=(
+                job,
+                hotwords.strip() if hotwords and hotwords.strip() else None,
+                allow_download,
+                diarization_allow_download,
+                diarization_access_token,
+            ),
             name=f"transcribe-{session_id}",
             daemon=True,
         )
@@ -210,6 +259,7 @@ class MeetingTranscriptionService:
             if job.state in {
                 TranscriptionJobState.PREPARING,
                 TranscriptionJobState.TRANSCRIBING,
+                TranscriptionJobState.DIARIZING,
             }:
                 job = job.transition(
                     TranscriptionJobState.FAILED,
@@ -225,6 +275,9 @@ class MeetingTranscriptionService:
         session_id: str,
         profile: TranscriptionProfile,
         language: str | None,
+        separate_remote_speakers: bool,
+        min_remote_speakers: int | None,
+        max_remote_speakers: int | None,
     ) -> TranscriptionJob:
         try:
             existing = self.transcript_store.load_job(session_id)
@@ -235,84 +288,83 @@ class MeetingTranscriptionService:
             and existing.state in {TranscriptionJobState.CANCELLED, TranscriptionJobState.FAILED}
             and existing.profile is profile
             and existing.language == language
+            and existing.separate_remote_speakers is separate_remote_speakers
+            and existing.min_remote_speakers == min_remote_speakers
+            and existing.max_remote_speakers == max_remote_speakers
         ):
             return existing.retry()
-        return TranscriptionJob.new(session_id, profile=profile, language=language)
+        return TranscriptionJob.new(
+            session_id,
+            profile=profile,
+            language=language,
+            separate_remote_speakers=separate_remote_speakers,
+            min_remote_speakers=min_remote_speakers,
+            max_remote_speakers=max_remote_speakers,
+        )
 
-    def _run(self, job: TranscriptionJob, hotwords: str | None, allow_download: bool) -> None:
+    def _run(
+        self,
+        job: TranscriptionJob,
+        hotwords: str | None,
+        allow_download: bool,
+        diarization_allow_download: bool,
+        diarization_access_token: str | None,
+    ) -> None:
         current = job
         try:
             current = current.transition(TranscriptionJobState.PREPARING)
             self._persist_current(current)
-            existing_transcript = self._existing_transcript(current)
-            if existing_transcript is not None:
-                current = current.with_progress(
-                    existing_transcript.duration_ms,
-                    existing_transcript.duration_ms,
-                )
+            session_directory = self.session_service.session_directory(current.session_id)
+            transcript = self._existing_transcript(current)
+            plan: PreparedAudioPlan | None = None
+            if transcript is not None:
+                current = current.with_progress(transcript.duration_ms, transcript.duration_ms)
                 current = current.transition(TranscriptionJobState.TRANSCRIBING)
                 self._persist_current(current)
-                self._save_meeting_notes(existing_transcript)
-                self.session_service.transition_state(current.session_id, SessionState.READY)
-                current = current.transition(TranscriptionJobState.COMPLETED)
-                self._persist_current(current)
-                return
-            plan = self.preparer.prepare(
-                self.session_service.session_directory(current.session_id),
-                current.job_id,
-            )
-            current = current.with_progress(0, plan.total_audio_ms)
-            current = current.transition(TranscriptionJobState.TRANSCRIBING)
-            self._persist_current(current)
-            engine = self.engine_factory(current.profile, allow_download=allow_download)
-            segments: list[TranscriptSegment] = []
-            language_scores: dict[str, float] = defaultdict(float)
-            processed_ms = 0
-            for chunk in plan.chunks:
-                result = engine.transcribe_chunk(
-                    chunk,
-                    language=current.language,
-                    hotwords=hotwords,
-                    cancel_requested=self._cancel_event.is_set,
+            else:
+                plan = self.preparer.prepare(
+                    session_directory,
+                    current.job_id,
                 )
-                language_scores[result.language] += result.language_probability * chunk.duration_ms
-                segments.extend(self._transcript_segments(current.job_id, chunk, result.segments))
-                processed_ms += chunk.duration_ms
-                current = current.with_progress(processed_ms, plan.total_audio_ms)
+                current = current.with_progress(0, plan.total_audio_ms)
+                current = current.transition(TranscriptionJobState.TRANSCRIBING)
                 self._persist_current(current)
-            if self._cancel_event.is_set():
-                raise TranscriptionCancelled("Transcription was cancelled")
-            language = current.language or max(
-                language_scores,
-                key=lambda candidate: language_scores[candidate],
-                default="und",
-            )
-            transcript = TranscriptDocument.new(
-                current.session_id,
-                run_id=current.job_id,
-                language=language,
-                engine=engine.engine_name,
-                model=engine.model_name,
-                profile=current.profile,
-                speakers=(
-                    TranscriptSpeaker("local", "You", TranscriptSource.MICROPHONE),
-                    TranscriptSpeaker(
-                        "remote",
-                        "Remote speakers",
-                        TranscriptSource.SYSTEM_AUDIO,
-                    ),
-                ),
-                segments=tuple(
-                    sorted(
-                        segments,
-                        key=lambda segment: (
-                            segment.start_ms,
-                            segment.end_ms,
-                            segment.segment_id,
-                        ),
+                transcript = self._transcribe_plan(
+                    current,
+                    plan,
+                    hotwords=hotwords,
+                    allow_download=allow_download,
+                )
+                current = self.current_job() or current
+                self.transcript_store.save_transcript(transcript)
+            if current.separate_remote_speakers and any(
+                segment.source is TranscriptSource.SYSTEM_AUDIO for segment in transcript.segments
+            ):
+                if plan is None:
+                    plan = self.preparer.prepare(
+                        session_directory,
+                        current.job_id,
                     )
-                ),
-            )
+                current = current.transition(TranscriptionJobState.DIARIZING)
+                self._persist_current(current)
+                try:
+                    transcript = self.remote_speaker_processor.separate(
+                        plan,
+                        session_directory,
+                        transcript,
+                        allow_download=diarization_allow_download,
+                        access_token=diarization_access_token,
+                        min_speakers=current.min_remote_speakers,
+                        max_speakers=current.max_remote_speakers,
+                        cancel_requested=self._cancel_event.is_set,
+                    )
+                except DiarizationCancelled as error:
+                    raise TranscriptionCancelled(str(error)) from error
+                except DiarizationRuntimeError as error:
+                    current = current.with_warning(
+                        f"Remote-speaker separation was unavailable: {error}"
+                    )
+                    self._persist_current(current)
             self.transcript_store.save_transcript(transcript)
             self._save_meeting_notes(transcript)
             self.session_service.transition_state(current.session_id, SessionState.READY)
@@ -327,6 +379,7 @@ class MeetingTranscriptionService:
             if current.state in {
                 TranscriptionJobState.PREPARING,
                 TranscriptionJobState.TRANSCRIBING,
+                TranscriptionJobState.DIARIZING,
             }:
                 current = current.transition(TranscriptionJobState.FAILED, error=message)
                 with suppress(OSError):
@@ -335,6 +388,64 @@ class MeetingTranscriptionService:
         finally:
             with self._lock:
                 self._job = current
+
+    def _transcribe_plan(
+        self,
+        current: TranscriptionJob,
+        plan: PreparedAudioPlan,
+        *,
+        hotwords: str | None,
+        allow_download: bool,
+    ) -> TranscriptDocument:
+        engine = self.engine_factory(current.profile, allow_download=allow_download)
+        segments: list[TranscriptSegment] = []
+        language_scores: dict[str, float] = defaultdict(float)
+        processed_ms = 0
+        for chunk in plan.chunks:
+            result = engine.transcribe_chunk(
+                chunk,
+                language=current.language,
+                hotwords=hotwords,
+                cancel_requested=self._cancel_event.is_set,
+            )
+            language_scores[result.language] += result.language_probability * chunk.duration_ms
+            segments.extend(self._transcript_segments(current.job_id, chunk, result.segments))
+            processed_ms += chunk.duration_ms
+            current = current.with_progress(processed_ms, plan.total_audio_ms)
+            self._persist_current(current)
+        if self._cancel_event.is_set():
+            raise TranscriptionCancelled("Transcription was cancelled")
+        language = current.language or max(
+            language_scores,
+            key=lambda candidate: language_scores[candidate],
+            default="und",
+        )
+        return TranscriptDocument.new(
+            current.session_id,
+            run_id=current.job_id,
+            language=language,
+            engine=engine.engine_name,
+            model=engine.model_name,
+            profile=current.profile,
+            speakers=(
+                TranscriptSpeaker("local", "You", TranscriptSource.MICROPHONE),
+                TranscriptSpeaker(
+                    "remote",
+                    "Remote speakers",
+                    TranscriptSource.SYSTEM_AUDIO,
+                ),
+            ),
+            segments=tuple(
+                sorted(
+                    segments,
+                    key=lambda segment: (
+                        segment.start_ms,
+                        segment.end_ms,
+                        segment.segment_id,
+                    ),
+                )
+            ),
+        )
 
     def _persist_current(self, job: TranscriptionJob) -> None:
         self.transcript_store.save_job(job)
