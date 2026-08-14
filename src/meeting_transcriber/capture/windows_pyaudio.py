@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from hashlib import sha256
+from queue import Empty, Queue
 from types import TracebackType
 from typing import Protocol, cast
 
@@ -39,8 +40,6 @@ class _AudioManager(Protocol):
 class _PortAudioStream(Protocol):
     def start_stream(self) -> None: ...
 
-    def read(self, frame_count: int, *, exception_on_overflow: bool) -> bytes: ...
-
     def stop_stream(self) -> None: ...
 
     def is_active(self) -> bool: ...
@@ -59,6 +58,10 @@ class _StreamAudioManager(_AudioManager, Protocol):
         input_device_index: int,
         frames_per_buffer: int,
         start: bool,
+        stream_callback: Callable[
+            [bytes | None, int, Mapping[str, float], int],
+            tuple[bytes | None, int],
+        ],
     ) -> _PortAudioStream: ...
 
     def terminate(self) -> None: ...
@@ -67,6 +70,7 @@ class _StreamAudioManager(_AudioManager, Protocol):
 class _PyAudioModule(Protocol):
     paWASAPI: int
     paInt16: int
+    paContinue: int
 
     def PyAudio(self) -> _AudioManager: ...
 
@@ -82,9 +86,15 @@ def _load_pyaudio_module() -> _PyAudioModule:
 
 
 class _ManagedPyAudioInputStream:
-    def __init__(self, manager: _StreamAudioManager, stream: _PortAudioStream):
+    def __init__(
+        self,
+        manager: _StreamAudioManager,
+        stream: _PortAudioStream,
+        audio_queue: Queue[bytes],
+    ):
         self._manager = manager
         self._stream = stream
+        self._audio_queue = audio_queue
         self._closed = False
 
     def start(self) -> None:
@@ -94,11 +104,14 @@ class _ManagedPyAudioInputStream:
             raise AudioStreamError("Could not start the Windows audio stream") from error
 
     def read(self, frame_count: int) -> bytes:
+        del frame_count
         if self._closed:
             raise AudioStreamError("Cannot read from a closed Windows audio stream")
         try:
-            return self._stream.read(frame_count, exception_on_overflow=False)
-        except OSError as error:
+            return self._audio_queue.get(timeout=0.1)
+        except Empty:
+            return b""
+        except (OSError, RuntimeError) as error:
             raise AudioStreamError("Could not read from the Windows audio stream") from error
 
     def stop(self) -> None:
@@ -135,6 +148,18 @@ class PyAudioWPatchStreamFactory:
             raise AudioStreamError(str(error)) from error
 
         manager = cast(_StreamAudioManager, module.PyAudio())
+        audio_queue: Queue[bytes] = Queue()
+
+        def capture_callback(
+            in_data: bytes | None,
+            _frame_count: int,
+            _time_info: Mapping[str, float],
+            _status_flags: int,
+        ) -> tuple[bytes | None, int]:
+            if in_data:
+                audio_queue.put(bytes(in_data))
+            return in_data, module.paContinue
+
         try:
             stream = manager.open(
                 format=module.paInt16,
@@ -144,11 +169,12 @@ class PyAudioWPatchStreamFactory:
                 input_device_index=config.device.backend_index,
                 frames_per_buffer=config.frames_per_buffer,
                 start=False,
+                stream_callback=capture_callback,
             )
         except (OSError, TypeError, ValueError) as error:
             manager.terminate()
             raise AudioStreamError(f"Could not open audio input: {config.device.name}") from error
-        return _ManagedPyAudioInputStream(manager, stream)
+        return _ManagedPyAudioInputStream(manager, stream, audio_queue)
 
 
 def _required_int(info: Mapping[str, object], field: str) -> int:

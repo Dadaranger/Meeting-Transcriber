@@ -10,17 +10,15 @@ from meeting_transcriber.capture.windows_pyaudio import PyAudioWPatchStreamFacto
 
 
 class FakePortAudioStream:
-    def __init__(self) -> None:
+    def __init__(self, callback: object) -> None:
         self.active = False
         self.closed = False
+        assert callable(callback)
+        self.callback = callback
 
     def start_stream(self) -> None:
         self.active = True
-
-    def read(self, frame_count: int, *, exception_on_overflow: bool) -> bytes:
-        assert frame_count == 512
-        assert exception_on_overflow is False
-        return b"\x01\x00" * frame_count * 2
+        self.callback(b"\x01\x00" * 512 * 2, 512, {}, 0)
 
     def stop_stream(self) -> None:
         self.active = False
@@ -34,7 +32,7 @@ class FakePortAudioStream:
 
 class FakeStreamManager:
     def __init__(self) -> None:
-        self.stream = FakePortAudioStream()
+        self.stream: FakePortAudioStream | None = None
         self.open_options: dict[str, object] = {}
         self.terminated = False
 
@@ -60,6 +58,7 @@ class FakeStreamManager:
 
     def open(self, **options: object) -> FakePortAudioStream:
         self.open_options = options
+        self.stream = FakePortAudioStream(options["stream_callback"])
         return self.stream
 
     def terminate(self) -> None:
@@ -69,6 +68,7 @@ class FakeStreamManager:
 class FakeStreamModule:
     paWASAPI = 13
     paInt16 = 8
+    paContinue = 0
 
     def __init__(self) -> None:
         self.manager = FakeStreamManager()
@@ -101,6 +101,8 @@ def test_opens_and_owns_a_pyaudio_input_stream() -> None:
     stream.close()
 
     assert len(pcm) == 512 * 2 * 2
+    callback = module.manager.open_options.pop("stream_callback")
+    assert callable(callback)
     assert module.manager.open_options == {
         "format": 8,
         "channels": 2,
@@ -110,5 +112,6 @@ def test_opens_and_owns_a_pyaudio_input_stream() -> None:
         "frames_per_buffer": 512,
         "start": False,
     }
+    assert module.manager.stream is not None
     assert module.manager.stream.closed
     assert module.manager.terminated
