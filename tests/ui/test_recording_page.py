@@ -65,7 +65,7 @@ def test_consent_is_a_hard_gate_for_begin_recording(qtbot: QtBot) -> None:
 
     assert not page.begin_button.isEnabled()
     assert not page.preflight_button.isEnabled()
-    assert page.consent_checkbox.text() == CONSENT_STATEMENT
+    assert " ".join(page.consent_checkbox.text().split()) == CONSENT_STATEMENT
     assert page.microphone_combo.currentData() == "mic-2"
     assert page.loopback_combo.currentData() == "loopback-1"
 
@@ -107,6 +107,22 @@ def test_missing_source_keeps_begin_recording_disabled(qtbot: QtBot) -> None:
 
     assert not page.begin_button.isEnabled()
     assert "system-audio loopback" in page.device_status_label.text()
+
+
+def test_recording_setup_scrolls_instead_of_compressing_controls(qtbot: QtBot) -> None:
+    page = RecordingPage()
+    qtbot.addWidget(page)
+    page.resize(710, 600)
+    page.load_session(MeetingSession.new("Weekly planning review"), _catalog())
+    page.show()
+    qtbot.wait(50)
+
+    vertical_scroll_bar = page.scroll_area.verticalScrollBar()
+    assert vertical_scroll_bar.maximum() > 0
+    assert vertical_scroll_bar.value() == vertical_scroll_bar.minimum()
+    assert page.scroll_area.horizontalScrollBar().maximum() == 0
+    assert page.consent_checkbox.height() >= page.consent_checkbox.sizeHint().height()
+    assert page.begin_button.height() >= page.begin_button.sizeHint().height()
 
 
 def test_device_error_clears_previous_choices(qtbot: QtBot) -> None:

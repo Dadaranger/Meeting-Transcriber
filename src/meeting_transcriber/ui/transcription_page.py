@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -23,6 +24,7 @@ from meeting_transcriber.domain.transcript import (
 )
 from meeting_transcriber.infrastructure.paths import default_models_directory
 from meeting_transcriber.processing.engine import MODEL_PROFILES
+from meeting_transcriber.ui.scrolling import create_scrollable_page, reset_scroll_position
 
 
 def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> QLabel:
@@ -30,6 +32,9 @@ def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> 
     if object_name is not None:
         label.setObjectName(object_name)
     label.setWordWrap(wrap)
+    if wrap:
+        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        label.setMinimumWidth(0)
     return label
 
 
@@ -42,9 +47,12 @@ class TranscriptionPage(QWidget):
         super().__init__(parent)
         self._session_id: str | None = None
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(38, 32, 38, 32)
-        root.setSpacing(16)
+        root, self.scroll_area = create_scrollable_page(
+            self,
+            accessible_name="Offline transcription setup and progress",
+            margins=(38, 32, 38, 32),
+            spacing=16,
+        )
         root.addWidget(_label("OFFLINE TRANSCRIPTION", "eyebrow"))
         root.addWidget(_label("Create a timestamped local transcript", "pageTitle"))
         root.addWidget(
@@ -104,7 +112,7 @@ class TranscriptionPage(QWidget):
         setup_layout.addWidget(self.hotwords_input)
 
         self.allow_download_checkbox = QCheckBox(
-            "Allow this run to download the selected speech model if it is not cached"
+            "Allow this run to download the selected speech model\nif it is not cached"
         )
         self.allow_download_checkbox.setAccessibleName("Allow speech model download")
         setup_layout.addWidget(self.allow_download_checkbox)
@@ -145,7 +153,7 @@ class TranscriptionPage(QWidget):
         setup_layout.addLayout(speaker_limits)
 
         self.allow_diarization_download_checkbox = QCheckBox(
-            "Allow this run to download the remote-speaker model if it is not cached"
+            "Allow this run to download the remote-speaker model\nif it is not cached"
         )
         self.allow_diarization_download_checkbox.setAccessibleName(
             "Allow remote speaker model download"
@@ -236,8 +244,10 @@ class TranscriptionPage(QWidget):
             self.max_remote_speakers.setValue(0)
         self.allow_diarization_download_checkbox.setChecked(False)
         self._update_diarization_controls()
+        reset_scroll_position(self.scroll_area)
 
     def show_job(self, job: TranscriptionJob) -> None:
+        reset_scroll_position(self.scroll_area)
         if job.state in {
             TranscriptionJobState.PENDING,
             TranscriptionJobState.PREPARING,

@@ -37,7 +37,7 @@ from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
 from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.session_store import SessionStore
 from meeting_transcriber.storage.transcript_store import TranscriptStore
-from meeting_transcriber.ui.main_window import MainWindow
+from meeting_transcriber.ui.main_window import APP_STYLE, MainWindow
 
 
 class FakeAudioDiscovery:
@@ -341,6 +341,79 @@ def test_first_run_guides_readiness_checks_and_persists_completion(
 
     assert first_run.is_complete()
     assert window.pages.currentWidget() is window.home_page
+
+
+def test_first_run_diagnostics_remain_readable_at_minimum_window_size(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    window = MainWindow(
+        MeetingSessionService(SessionStore(tmp_path / "meetings")),
+        FakeAudioDiscovery(),
+        first_run_store=FirstRunStore(tmp_path / "settings" / "first-run.json"),
+    )
+    qtbot.addWidget(window)
+    window.resize(window.minimumSize())
+    window.show()
+    qtbot.wait(50)
+
+    cards = (
+        window.diagnostics_page.operating_system_card,
+        window.diagnostics_page.python_card,
+        window.diagnostics_page.qt_card,
+        window.diagnostics_page.storage_card,
+        window.diagnostics_page.transcription_card,
+        window.diagnostics_page.audio_card,
+        window.diagnostics_page.diarization_card,
+    )
+    for card in cards:
+        label = card.value_label
+        required_height = max(
+            label.fontMetrics().height(),
+            label.heightForWidth(label.width()),
+        )
+        assert label.height() >= required_height
+
+    vertical_scroll_bar = window.diagnostics_page.scroll_area.verticalScrollBar()
+    assert vertical_scroll_bar.maximum() > 0
+    assert vertical_scroll_bar.value() == vertical_scroll_bar.minimum()
+    assert window.diagnostics_page.scroll_area.horizontalScrollBar().maximum() == 0
+    assert window.diagnostics_page.finish_setup_button.isVisibleTo(window)
+
+
+def test_global_style_keeps_label_backgrounds_transparent() -> None:
+    assert "QLabel {\n    background-color: transparent;\n}" in APP_STYLE
+    assert "QCheckBox {\n    background-color: transparent;\n}" in APP_STYLE
+    assert "QCheckBox::indicator:checked" in APP_STYLE
+
+
+def test_home_and_history_content_do_not_clip_at_minimum_window_size(
+    qtbot: QtBot,
+    tmp_path: Path,
+) -> None:
+    window = MainWindow(
+        MeetingSessionService(SessionStore(tmp_path)),
+        FakeAudioDiscovery(),
+    )
+    qtbot.addWidget(window)
+    window.resize(window.minimumSize())
+    window.show()
+    qtbot.wait(50)
+
+    for card in window.home_page.feature_cards:
+        label = card.description_label
+        assert label.height() >= label.heightForWidth(label.width())
+
+    qtbot.mouseClick(window.history_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    qtbot.wait(50)
+    action_buttons = (
+        window.history_page.open_folder_button,
+        window.history_page.open_notes_button,
+        window.history_page.review_button,
+        window.history_page.recover_button,
+        window.history_page.transcribe_button,
+    )
+    assert all(button.width() >= button.sizeHint().width() for button in action_buttons)
 
 
 def test_main_window_controls_have_keyboard_routes_and_accessible_names(

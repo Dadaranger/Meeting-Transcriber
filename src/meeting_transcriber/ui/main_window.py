@@ -14,9 +14,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLayout,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QStatusBar,
@@ -79,6 +81,29 @@ QWidget {
     font-family: "Segoe UI";
     font-size: 14px;
 }
+QLabel {
+    background-color: transparent;
+}
+QCheckBox {
+    background-color: transparent;
+}
+QCheckBox::indicator {
+    background-color: #0f192a;
+    border: 2px solid #64748b;
+    border-radius: 3px;
+    height: 16px;
+    width: 16px;
+}
+QCheckBox::indicator:hover {
+    border-color: #5eead4;
+}
+QCheckBox::indicator:checked {
+    border: 5px solid #5eead4;
+}
+QCheckBox::indicator:disabled {
+    background-color: #131e31;
+    border-color: #30415f;
+}
 QFrame#sidebar {
     background-color: #101827;
     border-right: 1px solid #243148;
@@ -109,6 +134,11 @@ QLabel#pageTitle {
 QLabel#sectionTitle {
     color: #f8fafc;
     font-size: 19px;
+    font-weight: 650;
+}
+QLabel#diagnosticValue {
+    color: #f8fafc;
+    font-size: 14px;
     font-weight: 650;
 }
 QLabel#muted {
@@ -218,6 +248,36 @@ QStatusBar {
     color: #8fa0b8;
     border-top: 1px solid #243148;
 }
+QScrollArea#diagnosticsScrollArea, QScrollArea#pageScrollArea {
+    background-color: #0b1120;
+    border: none;
+}
+QWidget#diagnosticsScrollContent, QWidget#pageScrollContent {
+    background-color: #0b1120;
+}
+QScrollBar:vertical {
+    background-color: #0f192a;
+    border: none;
+    border-radius: 5px;
+    margin: 0;
+    width: 10px;
+}
+QScrollBar::handle:vertical {
+    background-color: #30415f;
+    border-radius: 5px;
+    min-height: 32px;
+}
+QScrollBar::handle:vertical:hover {
+    background-color: #47658f;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    background: transparent;
+    border: none;
+    height: 0;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+}
 """
 
 
@@ -226,6 +286,9 @@ def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> 
     if object_name is not None:
         label.setObjectName(object_name)
     label.setWordWrap(wrap)
+    if wrap:
+        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        label.setMinimumWidth(0)
     return label
 
 
@@ -237,18 +300,20 @@ class FeatureCard(QFrame):
     def __init__(self, title: str, description: str, accent: str, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("featureCard")
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 17, 18, 17)
         layout.setSpacing(8)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
         accent_label = _label(accent, "eyebrow")
         title_label = _label(title, "sectionTitle")
-        description_label = _label(description, "muted", wrap=True)
+        self.description_label = _label(description, "muted", wrap=True)
+        self.description_label.setMinimumHeight(self.description_label.heightForWidth(160))
         layout.addWidget(accent_label)
         layout.addWidget(title_label)
-        layout.addWidget(description_label)
+        layout.addWidget(self.description_label)
 
 
 class HomePage(QWidget):
@@ -300,27 +365,25 @@ class HomePage(QWidget):
 
         cards = QHBoxLayout()
         cards.setSpacing(14)
-        cards.addWidget(
+        self.feature_cards = (
             FeatureCard(
                 "Two-source capture",
                 "Microphone and Windows system audio remain separate and recoverable.",
                 "RECORD",
-            )
-        )
-        cards.addWidget(
+            ),
             FeatureCard(
                 "Offline transcript",
                 "Speech processing is designed to work without uploading the meeting.",
                 "TRANSCRIBE",
-            )
-        )
-        cards.addWidget(
+            ),
             FeatureCard(
                 "Readable export",
                 "Review speaker labels, then produce portable Markdown and JSON files.",
                 "REVIEW",
-            )
+            ),
         )
+        for card in self.feature_cards:
+            cards.addWidget(card)
         root.addLayout(cards)
         root.addStretch()
 
@@ -329,11 +392,18 @@ class DiagnosticCard(QFrame):
     def __init__(self, name: str, value: str, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("diagnosticCard")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 15, 18, 15)
         layout.setSpacing(5)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         layout.addWidget(_label(name, "muted"))
-        self.value_label = _label(value, "sectionTitle", wrap=True)
+        self.value_label = _label(value, "diagnosticValue", wrap=True)
+        self.value_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Minimum,
+        )
+        self.value_label.setMinimumWidth(0)
         self.value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.value_label)
 
@@ -370,9 +440,29 @@ class DiagnosticsPage(QWidget):
             )
         )
         root.addSpacing(6)
-        root.addWidget(DiagnosticCard("Operating system", platform.platform()))
-        root.addWidget(DiagnosticCard("Python", sys.version.split()[0]))
-        root.addWidget(DiagnosticCard("Qt", qVersion()))
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("diagnosticsScrollArea")
+        self.scroll_area.setAccessibleName("Runtime readiness details")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_content = QWidget()
+        scroll_content.setObjectName("diagnosticsScrollContent")
+        card_list = QVBoxLayout(scroll_content)
+        card_list.setContentsMargins(0, 0, 10, 0)
+        card_list.setSpacing(15)
+        card_list.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+
+        system_row = QHBoxLayout()
+        system_row.setSpacing(15)
+        self.operating_system_card = DiagnosticCard("Operating system", platform.platform())
+        self.python_card = DiagnosticCard("Python", sys.version.split()[0])
+        self.qt_card = DiagnosticCard("Qt", qVersion())
+        for card in (self.operating_system_card, self.python_card, self.qt_card):
+            system_row.addWidget(card, 1)
+        card_list.addLayout(system_row)
+
         storage_row = QHBoxLayout()
         self.storage_card = DiagnosticCard(
             "Meeting storage",
@@ -382,13 +472,17 @@ class DiagnosticsPage(QWidget):
         self.choose_meeting_folder_button = QPushButton("Choose meeting folder")
         self.choose_meeting_folder_button.setAccessibleName("Choose meeting storage folder")
         self.choose_meeting_folder_button.clicked.connect(self.meeting_folder_change_requested.emit)
-        storage_row.addWidget(self.choose_meeting_folder_button)
-        root.addLayout(storage_row)
+        storage_row.addWidget(
+            self.choose_meeting_folder_button,
+            0,
+            Qt.AlignmentFlag.AlignVCenter,
+        )
+        card_list.addLayout(storage_row)
         self.transcription_card = DiagnosticCard(
             "Offline transcription runtime",
             "Not checked - run readiness checks to inspect local dependencies and model cache.",
         )
-        root.addWidget(self.transcription_card)
+        card_list.addWidget(self.transcription_card)
         audio_row = QHBoxLayout()
         self.audio_card = DiagnosticCard(
             "Windows capture devices",
@@ -398,8 +492,12 @@ class DiagnosticsPage(QWidget):
         self.refresh_audio_button = QPushButton("Refresh audio devices")
         self.refresh_audio_button.setAccessibleName("Refresh Windows audio devices")
         self.refresh_audio_button.clicked.connect(self._refresh_audio_devices)
-        audio_row.addWidget(self.refresh_audio_button)
-        root.addLayout(audio_row)
+        audio_row.addWidget(
+            self.refresh_audio_button,
+            0,
+            Qt.AlignmentFlag.AlignVCenter,
+        )
+        card_list.addLayout(audio_row)
         diarization_row = QHBoxLayout()
         self.diarization_card = DiagnosticCard(
             "Remote-speaker runtime",
@@ -409,9 +507,15 @@ class DiagnosticsPage(QWidget):
         self.refresh_diarization_button = QPushButton("Refresh speaker runtime")
         self.refresh_diarization_button.setAccessibleName("Refresh remote speaker runtime")
         self.refresh_diarization_button.clicked.connect(self._refresh_diarization_runtime)
-        diarization_row.addWidget(self.refresh_diarization_button)
-        root.addLayout(diarization_row)
-        root.addStretch()
+        diarization_row.addWidget(
+            self.refresh_diarization_button,
+            0,
+            Qt.AlignmentFlag.AlignVCenter,
+        )
+        card_list.addLayout(diarization_row)
+        self.scroll_area.setWidget(scroll_content)
+        root.addWidget(self.scroll_area, 1)
+
         actions = QHBoxLayout()
         self.run_all_button = QPushButton("Run all readiness checks")
         self.run_all_button.setAccessibleName("Run all first-run readiness checks")
@@ -430,6 +534,11 @@ class DiagnosticsPage(QWidget):
         self._refresh_transcription_runtime()
         self._refresh_audio_devices()
         self._refresh_diarization_runtime()
+        QTimer.singleShot(0, self._scroll_to_top)
+
+    def _scroll_to_top(self) -> None:
+        scroll_bar = self.scroll_area.verticalScrollBar()
+        scroll_bar.setValue(scroll_bar.minimum())
 
     def _refresh_storage(self) -> None:
         try:
@@ -1201,7 +1310,7 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(230)
+        sidebar.setFixedWidth(250)
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(18, 22, 18, 20)
         layout.setSpacing(10)
@@ -1212,7 +1321,7 @@ class MainWindow(QMainWindow):
         brand.setFixedSize(42, 42)
         brand_row.addWidget(brand)
         brand_text = QVBoxLayout()
-        product = _label("Meeting Transcriber", "sectionTitle")
+        product = _label("Meeting Transcriber", "sectionTitle", wrap=True)
         product.setFont(QFont("Segoe UI", 11, QFont.Weight.DemiBold))
         brand_text.addWidget(product)
         brand_text.addWidget(_label("Private meeting notes", "muted"))

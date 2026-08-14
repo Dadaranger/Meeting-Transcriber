@@ -55,6 +55,21 @@ def test_transcription_setup_emits_explicit_profile_language_and_download_choice
     assert page.diarization_token_input.text() == ""
 
 
+def test_transcription_setup_scrolls_instead_of_compressing_controls(qtbot: QtBot) -> None:
+    page = TranscriptionPage()
+    qtbot.addWidget(page)
+    page.resize(710, 600)
+    page.load_session(_recorded_session())
+    page.show()
+    qtbot.wait(50)
+
+    vertical_scroll_bar = page.scroll_area.verticalScrollBar()
+    assert vertical_scroll_bar.maximum() > 0
+    assert vertical_scroll_bar.value() == vertical_scroll_bar.minimum()
+    assert page.scroll_area.horizontalScrollBar().maximum() == 0
+    assert page.start_button.height() >= page.start_button.sizeHint().height()
+
+
 def test_transcription_page_shows_progress_and_retryable_failure(qtbot: QtBot) -> None:
     page = TranscriptionPage()
     qtbot.addWidget(page)

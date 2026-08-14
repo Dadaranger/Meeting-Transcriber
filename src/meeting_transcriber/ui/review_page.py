@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
 from meeting_transcriber.app.review_service import ReviewSnapshot
 from meeting_transcriber.domain.session import MeetingSession
 from meeting_transcriber.domain.transcript import TranscriptSegment, TranscriptSpeaker
+from meeting_transcriber.ui.scrolling import create_scrollable_page, reset_scroll_position
 
 
 def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> QLabel:
@@ -25,6 +27,9 @@ def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> 
     if object_name is not None:
         label.setObjectName(object_name)
     label.setWordWrap(wrap)
+    if wrap:
+        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        label.setMinimumWidth(0)
     return label
 
 
@@ -43,9 +48,12 @@ class TranscriptReviewPage(QWidget):
         self._source_speakers: dict[str, TranscriptSpeaker] = {}
         self._source_segments: dict[str, TranscriptSegment] = {}
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(38, 28, 38, 28)
-        root.setSpacing(13)
+        root, self.scroll_area = create_scrollable_page(
+            self,
+            accessible_name="Transcript review and meeting notes",
+            margins=(38, 28, 38, 28),
+            spacing=13,
+        )
         root.addWidget(_label("TRANSCRIPT REVIEW", "eyebrow"))
         self.meeting_title = _label("Review meeting", "pageTitle", wrap=True)
         root.addWidget(self.meeting_title)
@@ -272,6 +280,7 @@ class TranscriptReviewPage(QWidget):
             f"{1 if review.structured_notes is not None else 0} reviewed note set(s)."
         )
         self.review_status.setText(f"{saved_message} {detail}" if saved_message else detail)
+        reset_scroll_position(self.scroll_area)
 
     def selected_speaker_id(self) -> str | None:
         value = self.speaker_combo.currentData()

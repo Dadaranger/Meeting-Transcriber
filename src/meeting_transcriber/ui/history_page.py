@@ -3,11 +3,13 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +22,9 @@ def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> 
     if object_name is not None:
         label.setObjectName(object_name)
     label.setWordWrap(wrap)
+    if wrap:
+        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        label.setMinimumWidth(0)
     return label
 
 
@@ -73,30 +78,33 @@ class HistoryPage(QWidget):
         self.selection_status = _label("Select a meeting session.", "muted", wrap=True)
         card_layout.addWidget(self.selection_status)
 
-        actions = QHBoxLayout()
-        actions.addStretch()
+        actions = QGridLayout()
+        actions.setHorizontalSpacing(12)
+        actions.setVerticalSpacing(10)
         self.open_folder_button = QPushButton("Open meeting folder")
         self.open_folder_button.setEnabled(False)
         self.open_folder_button.clicked.connect(self._emit_open_folder)
-        actions.addWidget(self.open_folder_button)
+        actions.addWidget(self.open_folder_button, 0, 0)
         self.open_notes_button = QPushButton("Open meeting notes")
         self.open_notes_button.setEnabled(False)
         self.open_notes_button.clicked.connect(self._emit_open_notes)
-        actions.addWidget(self.open_notes_button)
+        actions.addWidget(self.open_notes_button, 0, 1)
         self.review_button = QPushButton("Review transcript")
         self.review_button.setEnabled(False)
         self.review_button.clicked.connect(self._emit_review)
-        actions.addWidget(self.review_button)
+        actions.addWidget(self.review_button, 1, 0)
         self.recover_button = QPushButton("Recover finalized audio")
         self.recover_button.setObjectName("primaryButton")
         self.recover_button.setEnabled(False)
         self.recover_button.clicked.connect(self._emit_recover)
-        actions.addWidget(self.recover_button)
+        actions.addWidget(self.recover_button, 1, 1)
         self.transcribe_button = QPushButton("Transcribe offline")
         self.transcribe_button.setObjectName("primaryButton")
         self.transcribe_button.setEnabled(False)
         self.transcribe_button.clicked.connect(self._emit_transcribe)
-        actions.addWidget(self.transcribe_button)
+        actions.addWidget(self.transcribe_button, 2, 1)
+        for column in range(2):
+            actions.setColumnStretch(column, 1)
         card_layout.addLayout(actions)
         root.addWidget(card)
         root.addStretch()

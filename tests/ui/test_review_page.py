@@ -71,6 +71,21 @@ def _snapshot() -> ReviewSnapshot:
     return ReviewSnapshot(transcript, review, transcript, Path("meeting-notes.md"))
 
 
+def test_review_page_scrolls_instead_of_compressing_editors(qtbot: QtBot) -> None:
+    page = TranscriptReviewPage()
+    qtbot.addWidget(page)
+    page.resize(710, 600)
+    page.load_snapshot(_session(), _snapshot())
+    page.show()
+    qtbot.wait(50)
+
+    vertical_scroll_bar = page.scroll_area.verticalScrollBar()
+    assert vertical_scroll_bar.maximum() > 0
+    assert vertical_scroll_bar.value() == vertical_scroll_bar.minimum()
+    assert page.scroll_area.horizontalScrollBar().maximum() == 0
+    assert page.save_segment_button.height() >= page.save_segment_button.sizeHint().height()
+
+
 def test_review_page_emits_explicit_speaker_and_segment_edits(qtbot: QtBot) -> None:
     page = TranscriptReviewPage()
     qtbot.addWidget(page)

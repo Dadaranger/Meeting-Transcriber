@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
 from meeting_transcriber.app.storage_health import DiskSpaceStatus
 from meeting_transcriber.capture.devices import AudioDevice, AudioDeviceCatalog
 from meeting_transcriber.domain.session import CONSENT_STATEMENT, MeetingSession
+from meeting_transcriber.ui.scrolling import create_scrollable_page, reset_scroll_position
 
 
 def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> QLabel:
@@ -25,6 +27,9 @@ def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> 
     if object_name is not None:
         label.setObjectName(object_name)
     label.setWordWrap(wrap)
+    if wrap:
+        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        label.setMinimumWidth(0)
     return label
 
 
@@ -44,9 +49,12 @@ class RecordingPage(QWidget):
         self._session_id: str | None = None
         self._preflight_active = False
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(38, 32, 38, 32)
-        root.setSpacing(16)
+        root, self.scroll_area = create_scrollable_page(
+            self,
+            accessible_name="Recording setup and status",
+            margins=(38, 32, 38, 32),
+            spacing=16,
+        )
         root.addWidget(_label("RECORDING SETUP", "eyebrow"))
         root.addWidget(_label("Review before recording", "pageTitle"))
         root.addWidget(
@@ -90,7 +98,9 @@ class RecordingPage(QWidget):
         card_layout.addWidget(self.storage_status_label)
 
         card_layout.addSpacing(6)
-        self.consent_checkbox = QCheckBox(CONSENT_STATEMENT)
+        self.consent_checkbox = QCheckBox(
+            CONSENT_STATEMENT.replace("been informed and", "been informed\nand")
+        )
         self.consent_checkbox.setObjectName("consentCheckbox")
         self.consent_checkbox.setAccessibleName("Confirm participant recording consent")
         self.consent_checkbox.toggled.connect(self._update_begin_enabled)
@@ -242,6 +252,7 @@ class RecordingPage(QWidget):
                 missing.append("system-audio loopback")
             self.device_status_label.setText(f"Missing capture source: {', '.join(missing)}.")
         self._update_begin_enabled()
+        reset_scroll_position(self.scroll_area)
 
     def show_recording(self, session: MeetingSession) -> None:
         self.live_meeting_title.setText(session.title)
@@ -260,6 +271,7 @@ class RecordingPage(QWidget):
         self.pause_button.setAccessibleName("Pause recording")
         self._update_elapsed()
         self._elapsed_timer.start()
+        reset_scroll_position(self.scroll_area)
 
     def recording_finished(self) -> None:
         self._elapsed_timer.stop()
