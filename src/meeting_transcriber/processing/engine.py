@@ -35,6 +35,17 @@ MODEL_PROFILES: Mapping[TranscriptionProfile, TranscriptionModelProfile] = {
     TranscriptionProfile.ACCURATE: TranscriptionModelProfile("large-v3", 5),
 }
 
+STANDARD_VAD_PARAMETERS: Mapping[str, object] = {
+    "min_silence_duration_ms": 500,
+}
+LOW_VOLUME_VAD_PARAMETERS: Mapping[str, object] = {
+    "threshold": 0.15,
+    "min_speech_duration_ms": 250,
+    "min_silence_duration_ms": 500,
+    "speech_pad_ms": 400,
+}
+LOW_VOLUME_FALLBACK_MINIMUM_MS = 1_000
+
 
 @dataclass(frozen=True, slots=True)
 class EngineWord:
@@ -256,18 +267,26 @@ class FasterWhisperEngine:
                 beam_size=self.profile_settings.beam_size,
                 word_timestamps=True,
                 vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 500},
+                vad_parameters=dict(STANDARD_VAD_PARAMETERS),
                 condition_on_previous_text=False,
                 hallucination_silence_threshold=2.0,
                 hotwords=hotwords,
             )
-            segments: list[EngineSegment] = []
-            for generated_segment in generated:
-                if cancel_requested():
-                    raise TranscriptionCancelled("Transcription was cancelled")
-                segment = self._convert_segment(generated_segment)
-                if segment is not None:
-                    segments.append(segment)
+            segments = self._converted_segments(generated, cancel_requested)
+            if not segments and chunk.duration_ms >= LOW_VOLUME_FALLBACK_MINIMUM_MS:
+                generated, info = model.transcribe(
+                    str(chunk.path),
+                    language=language,
+                    task="transcribe",
+                    beam_size=self.profile_settings.beam_size,
+                    word_timestamps=True,
+                    vad_filter=True,
+                    vad_parameters=dict(LOW_VOLUME_VAD_PARAMETERS),
+                    condition_on_previous_text=False,
+                    hallucination_silence_threshold=2.0,
+                    hotwords=hotwords,
+                )
+                segments = self._converted_segments(generated, cancel_requested)
         except TranscriptionCancelled:
             raise
         except Exception as error:
@@ -279,6 +298,21 @@ class FasterWhisperEngine:
             language_probability=max(0.0, min(1.0, info.language_probability)),
             segments=tuple(segments),
         )
+
+    @classmethod
+    def _converted_segments(
+        cls,
+        generated: Iterable[_SegmentResult],
+        cancel_requested: Callable[[], bool],
+    ) -> list[EngineSegment]:
+        segments: list[EngineSegment] = []
+        for generated_segment in generated:
+            if cancel_requested():
+                raise TranscriptionCancelled("Transcription was cancelled")
+            segment = cls._convert_segment(generated_segment)
+            if segment is not None:
+                segments.append(segment)
+        return segments
 
     def _get_model(self) -> _WhisperModel:
         if self._model is not None:

@@ -67,6 +67,21 @@ class FakeModel:
         )
 
 
+class LowVolumeFakeModel(FakeModel):
+    def transcribe(
+        self,
+        audio: str,
+        **options: object,
+    ) -> tuple[tuple[FakeSegment, ...], FakeInfo]:
+        self.calls.append((audio, options))
+        if len(self.calls) == 1:
+            return (), FakeInfo("en", 0.91)
+        return (
+            (FakeSegment(" Quiet speech. ", 0.2, 1.4, -0.5, None),),
+            FakeInfo("en", 0.91),
+        )
+
+
 class FakeModelFactory:
     def __init__(self, model: FakeModel, *, fail: bool = False, failures: int = 0):
         self.model = model
@@ -182,6 +197,32 @@ def test_engine_checks_cancellation_before_loading_a_model(tmp_path: Path) -> No
         )
 
     assert factory.calls == []
+
+
+def test_engine_retries_empty_long_audio_with_low_volume_vad(tmp_path: Path) -> None:
+    model = LowVolumeFakeModel()
+    engine = FasterWhisperEngine(
+        TranscriptionProfile.BALANCED,
+        tmp_path / "models",
+        model_factory=FakeModelFactory(model),
+    )
+
+    result = engine.transcribe_chunk(
+        _chunk(tmp_path),
+        language="en",
+        hotwords=None,
+        cancel_requested=lambda: False,
+    )
+
+    assert [segment.text for segment in result.segments] == ["Quiet speech."]
+    assert len(model.calls) == 2
+    assert model.calls[0][1]["vad_parameters"] == {"min_silence_duration_ms": 500}
+    assert model.calls[1][1]["vad_parameters"] == {
+        "threshold": 0.15,
+        "min_speech_duration_ms": 250,
+        "min_silence_duration_ms": 500,
+        "speech_pad_ms": 400,
+    }
 
 
 def test_engine_acquires_download_then_loads_strictly_from_local_cache(tmp_path: Path) -> None:
