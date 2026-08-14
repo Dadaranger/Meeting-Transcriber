@@ -83,7 +83,19 @@ def test_review_page_scrolls_instead_of_compressing_editors(qtbot: QtBot) -> Non
     assert vertical_scroll_bar.maximum() > 0
     assert vertical_scroll_bar.value() == vertical_scroll_bar.minimum()
     assert page.scroll_area.horizontalScrollBar().maximum() == 0
-    assert page.save_segment_button.height() >= page.save_segment_button.sizeHint().height()
+    action_buttons = (
+        page.reset_speaker_button,
+        page.save_speaker_button,
+        page.save_structured_notes_button,
+        page.reset_assignment_button,
+        page.save_assignment_button,
+        page.reset_segment_button,
+        page.save_segment_button,
+        page.back_button,
+        page.open_notes_button,
+    )
+    assert all(button.height() >= button.sizeHint().height() for button in action_buttons)
+    assert all(button.width() >= button.sizeHint().width() for button in action_buttons)
 
 
 def test_review_page_emits_explicit_speaker_and_segment_edits(qtbot: QtBot) -> None:

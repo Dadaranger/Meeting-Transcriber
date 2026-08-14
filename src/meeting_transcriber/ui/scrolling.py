@@ -4,7 +4,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
 
 
-class _VerticalScrollContent(QWidget):
+class VerticalScrollContent(QWidget):
     """Preserve content height while allowing it to reflow to the viewport width."""
 
     def sizeHint(self) -> QSize:
@@ -35,7 +35,7 @@ def create_scrollable_page(
     scroll_area.setFrameShape(QFrame.Shape.NoFrame)
     scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-    content = _VerticalScrollContent()
+    content = VerticalScrollContent()
     content.setObjectName("pageScrollContent")
     content_layout = QVBoxLayout(content)
     content_layout.setContentsMargins(*margins)

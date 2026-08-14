@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from meeting_transcriber import __version__
 from meeting_transcriber.app.recording_service import (
     MeetingRecordingService,
     RecordingWorkflow,
@@ -72,6 +73,7 @@ from meeting_transcriber.storage.transcript_store import TranscriptStore
 from meeting_transcriber.ui.history_page import HistoryPage
 from meeting_transcriber.ui.recording_page import RecordingPage
 from meeting_transcriber.ui.review_page import TranscriptReviewPage
+from meeting_transcriber.ui.scrolling import VerticalScrollContent
 from meeting_transcriber.ui.transcription_page import TranscriptionPage
 
 APP_STYLE = """
@@ -339,7 +341,9 @@ class HomePage(QWidget):
         hero_layout.setContentsMargins(30, 28, 30, 30)
         hero_layout.setSpacing(13)
 
-        hero_layout.addWidget(_label("Turn conversations into clear meeting notes", "pageTitle"))
+        hero_layout.addWidget(
+            _label("Turn conversations into clear meeting notes", "pageTitle", wrap=True)
+        )
         hero_layout.addWidget(
             _label(
                 "Record microphone and meeting audio, process it locally, review speakers, "
@@ -447,12 +451,11 @@ class DiagnosticsPage(QWidget):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_content = QWidget()
+        scroll_content = VerticalScrollContent()
         scroll_content.setObjectName("diagnosticsScrollContent")
         card_list = QVBoxLayout(scroll_content)
         card_list.setContentsMargins(0, 0, 10, 0)
         card_list.setSpacing(15)
-        card_list.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
         system_row = QHBoxLayout()
         system_row.setSpacing(15)
@@ -463,56 +466,50 @@ class DiagnosticsPage(QWidget):
             system_row.addWidget(card, 1)
         card_list.addLayout(system_row)
 
-        storage_row = QHBoxLayout()
         self.storage_card = DiagnosticCard(
             "Meeting storage",
             f"Not checked - current meeting folder:\n{self.meeting_root}",
         )
-        storage_row.addWidget(self.storage_card, 1)
+        card_list.addWidget(self.storage_card)
         self.choose_meeting_folder_button = QPushButton("Choose meeting folder")
         self.choose_meeting_folder_button.setAccessibleName("Choose meeting storage folder")
         self.choose_meeting_folder_button.clicked.connect(self.meeting_folder_change_requested.emit)
-        storage_row.addWidget(
+        card_list.addWidget(
             self.choose_meeting_folder_button,
             0,
-            Qt.AlignmentFlag.AlignVCenter,
+            Qt.AlignmentFlag.AlignLeft,
         )
-        card_list.addLayout(storage_row)
         self.transcription_card = DiagnosticCard(
             "Offline transcription runtime",
             "Not checked - run readiness checks to inspect local dependencies and model cache.",
         )
         card_list.addWidget(self.transcription_card)
-        audio_row = QHBoxLayout()
         self.audio_card = DiagnosticCard(
             "Windows capture devices",
             "Not checked - refresh to enumerate devices without recording.",
         )
-        audio_row.addWidget(self.audio_card, 1)
+        card_list.addWidget(self.audio_card)
         self.refresh_audio_button = QPushButton("Refresh audio devices")
         self.refresh_audio_button.setAccessibleName("Refresh Windows audio devices")
         self.refresh_audio_button.clicked.connect(self._refresh_audio_devices)
-        audio_row.addWidget(
+        card_list.addWidget(
             self.refresh_audio_button,
             0,
-            Qt.AlignmentFlag.AlignVCenter,
+            Qt.AlignmentFlag.AlignLeft,
         )
-        card_list.addLayout(audio_row)
-        diarization_row = QHBoxLayout()
         self.diarization_card = DiagnosticCard(
             "Remote-speaker runtime",
             "Not checked - refresh to inspect local dependencies and model cache.",
         )
-        diarization_row.addWidget(self.diarization_card, 1)
+        card_list.addWidget(self.diarization_card)
         self.refresh_diarization_button = QPushButton("Refresh speaker runtime")
         self.refresh_diarization_button.setAccessibleName("Refresh remote speaker runtime")
         self.refresh_diarization_button.clicked.connect(self._refresh_diarization_runtime)
-        diarization_row.addWidget(
+        card_list.addWidget(
             self.refresh_diarization_button,
             0,
-            Qt.AlignmentFlag.AlignVCenter,
+            Qt.AlignmentFlag.AlignLeft,
         )
-        card_list.addLayout(diarization_row)
         self.scroll_area.setWidget(scroll_content)
         root.addWidget(self.scroll_area, 1)
 
@@ -1324,7 +1321,7 @@ class MainWindow(QMainWindow):
         product = _label("Meeting Transcriber", "sectionTitle", wrap=True)
         product.setFont(QFont("Segoe UI", 11, QFont.Weight.DemiBold))
         brand_text.addWidget(product)
-        brand_text.addWidget(_label("Private meeting notes", "muted"))
+        brand_text.addWidget(_label(f"Private meeting notes · v{__version__}", "muted", wrap=True))
         brand_row.addLayout(brand_text)
         layout.addLayout(brand_row)
         layout.addSpacing(22)

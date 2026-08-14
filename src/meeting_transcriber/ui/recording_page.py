@@ -56,7 +56,7 @@ class RecordingPage(QWidget):
             spacing=16,
         )
         root.addWidget(_label("RECORDING SETUP", "eyebrow"))
-        root.addWidget(_label("Review before recording", "pageTitle"))
+        root.addWidget(_label("Review before recording", "pageTitle", wrap=True))
         root.addWidget(
             _label(
                 "Confirm the meeting, devices, and participant notice before testing sources "
