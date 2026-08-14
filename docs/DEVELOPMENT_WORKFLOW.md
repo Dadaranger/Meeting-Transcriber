@@ -24,7 +24,7 @@ Examples of appropriately scoped commits:
 - `record microphone audio chunks`
 - `capture WASAPI loopback audio`
 - `transcribe a recorded session offline`
-- `export timestamped meeting Markdown`
+- `export named meeting TXT`
 
 Avoid mixing refactors, dependency upgrades, generated files, and user-facing
 features in the same commit unless they are inseparable.

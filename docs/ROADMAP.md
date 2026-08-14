@@ -136,7 +136,7 @@ corrected by the user.
 
 **Current implementation status:** channel-aware local/remote attribution, the
 transcript review screen, source-label renaming, segment text correction, reset to
-model output, immutable review revisions, Markdown regeneration, optional pinned
+model output, immutable review revisions, TXT regeneration, optional pinned
 Community-1 diarization, stable anonymous remote clusters, exclusive-turn word
 assignment, safe fallback, cancellation/retry, runtime diagnostics, and
 permutation-invariant speaker-accuracy evaluation are implemented. Source-safe manual
@@ -151,19 +151,19 @@ planned release evidence.
 **Planned increments**
 
 1. Versioned transcript JSON schema and migrations
-2. Deterministic Markdown renderer
+2. Deterministic plain-text renderer
 3. Editable summary, decisions, and action-item sections
 4. Optional pluggable semantic summarizer with explicit privacy disclosure
 5. Re-export and open/copy actions
 
 **Acceptance criteria**
 
-- Markdown includes metadata, speakers, timestamps, and transcript.
+- TXT includes metadata, speakers, timestamps, and transcript.
 - JSON validates against its schema.
 - Export works without diarization or an AI summary provider.
 - Existing user edits are preserved during re-export.
 
-**Current implementation status:** versioned JSON, deterministic baseline Markdown,
+**Current implementation status:** versioned JSON, deterministic baseline TXT,
 retained rendered runs, automatic post-transcription export, and the History open
 action are implemented. Reviewed transcript corrections are preserved during every
 re-export. The in-app review screen now stores and renders an editable summary,

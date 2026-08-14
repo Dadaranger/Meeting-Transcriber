@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'Meeting Transcriber contributors'),
           StringStruct('FileDescription', 'Local-first meeting recorder and transcriber'),
-          StringStruct('FileVersion', '0.1.1'),
+          StringStruct('FileVersion', '0.1.2'),
           StringStruct('InternalName', 'MeetingTranscriber'),
           StringStruct('LegalCopyright', 'Copyright (c) 2026 Meeting Transcriber contributors'),
           StringStruct('OriginalFilename', 'MeetingTranscriber.exe'),
           StringStruct('ProductName', 'Meeting Transcriber'),
-          StringStruct('ProductVersion', '0.1.1'),
+          StringStruct('ProductVersion', '0.1.2'),
         ],
       )
     ]),

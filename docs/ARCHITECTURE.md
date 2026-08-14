@@ -25,7 +25,7 @@ flowchart LR
     PIPELINE --> TRANSCRIBE["Offline transcription"]
     PIPELINE --> DIARIZE["Optional diarization"]
     PIPELINE --> MERGE["Timeline merge"]
-    PIPELINE --> EXPORT["Markdown and JSON export"]
+    PIPELINE --> EXPORT["TXT and JSON export"]
     TRANSCRIBE --> MODELS["Local model cache"]
     DIARIZE --> MODELS
     STORE --> PIPELINE
@@ -43,7 +43,7 @@ flowchart LR
 | Transcription | faster-whisper/CTranslate2 | Local CPU/CUDA inference, timestamps, VAD, and multiple model sizes |
 | Speaker diarization | Optional pyannote pipeline | Established diarization tooling; isolated because model access and compute vary |
 | Canonical data | Versioned JSON documents | Allows deterministic re-export and schema migrations |
-| Human output | Markdown | Portable, searchable, editable, and readable without the app |
+| Human output | Plain TXT | Portable, searchable, editable, and readable without the app |
 | Settings | Versioned local configuration | Transparent migrations and no account requirement |
 | Packaging | `pyside6-deploy` evaluated first | Official PySide6 deployment tool; create a signed Windows installer later |
 | Tests | pytest plus recorded fixtures | Unit, pipeline, and end-to-end coverage without live meetings in CI |
@@ -62,7 +62,7 @@ src/meeting_transcriber/
   capture/             # interfaces plus Windows implementation
   processing/          # transcription, diarization, merge, and cleanup
   storage/             # manifests, atomic writes, migrations, model cache
-  export/              # Markdown and canonical JSON renderers
+  export/              # Plain-text and canonical JSON renderers
   ui/                  # PySide6 windows, dialogs, models, and workers
   infrastructure/      # logging, credentials, platform paths, diagnostics
 tests/
@@ -162,7 +162,7 @@ that a channel always identifies a unique person.
 6. Align transcript words/segments with diarization turns.
 7. Merge both streams on a single timeline while preserving overlaps.
 8. Write a versioned canonical `transcript.json` atomically.
-9. Render deterministic Markdown from canonical data and user edits.
+9. Render deterministic TXT from canonical data and user edits.
 
 Every stage receives immutable inputs and writes a new artifact plus status. A
 failure in diarization must not invalidate a successful transcription.
@@ -202,7 +202,7 @@ Meetings/
     transcript.json
     diarization.json
     transcript-review.json
-    meeting-notes.md
+    <meeting title> - <local date and time>.txt
     logs/
       processing.log
 ```
@@ -229,7 +229,7 @@ saved change is retained under
 transcript.
 
 Rendering applies the current review overlay to the canonical transcript in memory,
-then writes `meeting-notes.md`; it never rewrites `transcript.json`. A new
+then writes the named TXT output; it never rewrites `transcript.json`. A new
 transcription run may inherit stable speaker-name corrections for matching speaker
 IDs plus the meeting-level summary, decisions, and action items. It drops segment-text
 and segment-speaker corrections because segment IDs and model output are run-specific.
@@ -309,7 +309,7 @@ does not silently overwrite them.
 
 ## Quality strategy
 
-- Unit-test state transitions, schemas, merge logic, and Markdown rendering.
+- Unit-test state transitions, schemas, merge logic, and plain-text rendering.
 - Integration-test capture against synthetic/virtual devices where practical.
 - Maintain short, licensed audio fixtures with known words and speaker turns.
 - Add a one-hour soak test for clock drift, disk use, memory, and recovery.

@@ -41,7 +41,7 @@ and should not need to understand speech-model internals.
 6. Start, pause, resume, and stop recording from an always-visible control.
 7. Watch processing progress or defer processing until later.
 8. Review the transcript, rename speakers, and correct important text.
-9. Export or open the Markdown meeting note and its supporting JSON record.
+9. Export or open the plain-text meeting note and its supporting JSON record.
 
 ## MVP scope
 
@@ -69,7 +69,7 @@ and should not need to understand speech-model internals.
 ### Output
 
 - A canonical JSON transcript
-- A Markdown meeting note containing:
+- A TXT meeting note containing:
   - title, date, duration, and processing metadata
   - participant/speaker list
   - chronological transcript with timestamps
@@ -106,7 +106,7 @@ recording and transcript workflow.
 
 A release candidate is useful when a non-technical Windows user can install it,
 record a 60-minute meeting containing both local and remote speech, stop safely,
-process the session on CPU, review speaker labels, and open a readable Markdown
+process the session on CPU, review speaker labels, and open a readable TXT
 file without using a terminal.
 
 ## Success measures
@@ -116,7 +116,7 @@ file without using a terminal.
 - Microphone and system streams stay within 250 ms of alignment over 60 minutes.
 - The app reports missing/incorrect audio sources before recording.
 - Every processing stage can be retried without changing the source recording.
-- Exported Markdown remains readable even when diarization or summarization is
+- Exported TXT remains readable even when diarization or summarization is
   unavailable.
 
 ## Risks requiring early validation

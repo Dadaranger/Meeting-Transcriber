@@ -14,7 +14,7 @@ applications without requiring a bot to join the call.
 - Separate microphone and system-audio capture
 - Recoverable sessions that survive an interrupted processing job
 - Speaker labels that the user can review and rename
-- Markdown as the primary human-readable export
+- Plain TXT as the primary human-readable export
 - JSON as the canonical machine-readable record
 - Explicit recording/consent reminders and clear privacy controls
 
@@ -39,7 +39,8 @@ a device-review screen, recording cannot begin until the acknowledgement is chec
 and the live screen keeps independent source levels, elapsed active time,
 pause/resume, and stop controls visible. Consent version, capture scope, session
 state, WAV chunks, capture timing, processing jobs, and transcript runs are persisted
-locally.
+locally. Windows streams use callback capture so loopback packets continue arriving
+when meeting audio starts after an initial silent period.
 
 The setup screen can run a consent-gated five-second source test without saving
 audio. Recording is blocked at critically low disk space and remaining capacity is
@@ -54,12 +55,15 @@ network. Cancellation stops an active model transfer cooperatively and preserves
 resumable cache as well as the recording and prepared audio. Processing progress
 survives at chunk boundaries, and interrupted jobs become retryable at the next
 startup. The canonical versioned result is `transcript.json`, with prior runs retained
-under `derived/transcripts/`.
+under `derived/transcripts/`. If the standard speech detector rejects an otherwise
+valid, quiet chunk, the engine retries it once with a more sensitive voice threshold
+while keeping Whisper's own no-speech checks enabled.
 
-Each successful transcription also creates an editable `meeting-notes.md` with
-meeting metadata, participant/source labels, timestamps, and the complete
-conversation. History marks sessions whose notes are ready and can open the file
-directly. Prior rendered runs are retained under `derived/meeting-notes/`.
+Each successful transcription creates an editable TXT file named from the meeting
+title and local recording time, for example `Weekly sync - 2026-08-14 093000.txt`.
+It contains meeting metadata, participant/source labels, timestamps, and the complete
+conversation. The completion page and History can open the saved file directly.
+Prior rendered runs are retained under `derived/meeting-notes/`.
 
 On the first desktop launch, the app opens a local readiness walkthrough. It checks
 free meeting storage, enumerates microphone and system-loopback devices, reports the
@@ -72,7 +76,7 @@ deleted.
 
 History can also open an in-app transcript review screen. Speaker/source labels,
 segment speaker assignments, and important segment text can be corrected one change
-at a time; each change updates the Markdown notes and creates a retained review
+at a time; each change updates the TXT notes and creates a retained review
 revision without altering the original model transcript. Speaker reassignment stays
 within the segment's captured audio source. The segment list explicitly labels
 overlapping speech and confidence below 70%. The same screen edits the reviewed
@@ -99,7 +103,7 @@ label and a visible warning.
 Automated checks exercise forced process termination, a simulated 60-minute
 dual-source journal, persisted transcription recovery, and deterministic accuracy
 metrics. A real 60-minute hardware soak and representative accuracy samples are
-still required before a release. Baseline Markdown export, durable transcript
+still required before a release. Baseline TXT export, durable transcript
 correction and speaker reassignment, review cues, and optional remote voice
 diarization are implemented. Editable structured notes are also complete; release
 qualification on target Windows hardware remains the active product milestone.
@@ -133,7 +137,7 @@ With Inno Setup 6 installed, create the per-user installer, portable ZIP, and
 checksums with:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.2
 ```
 
 The installer never deletes meeting data or model caches during uninstall. See

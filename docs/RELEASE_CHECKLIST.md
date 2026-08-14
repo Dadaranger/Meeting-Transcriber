@@ -17,7 +17,7 @@ Record candidate-specific results and workflow links in
 - [ ] Run `scripts/build_installer.ps1 -AppVersion <version>`.
 - [ ] Install for the current user on a clean Windows 10/11 x64 VM with no Python.
 - [ ] Confirm microphone and WASAPI loopback discovery, consent, recording, pause/resume,
-  stop, offline transcription, review, Markdown export, meeting-history recovery, and
+  stop, offline transcription, review, TXT export, meeting-history recovery, and
   persistence of a user-selected meeting folder across restart.
 - [ ] Complete a real 60-minute dual-source recording and transcription soak on target
   hardware; record CPU, memory, disk use, temperatures, failures, and accuracy results.

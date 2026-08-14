@@ -13,7 +13,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release_readin
 | Capture start or stop throws | `test_recording_service.py` | Session becomes interrupted instead of falsely recorded. |
 | Process is forcibly terminated | `test_forced_termination_recovery.py` | Next launch detects abandoned recording state and exposes recovery only with finalized audio. |
 | Offline model raises, then retry succeeds | `test_transcription_service.py` | Failed job preserves prepared audio and retry reuses the same run safely. |
-| Markdown write fails after transcription | `test_transcription_service.py` | Retry reuses the completed transcript without another model pass. |
+| TXT write fails after transcription | `test_transcription_service.py` | Retry reuses the completed transcript without another model pass. |
 | Optional diarization fails | `test_transcription_service.py` | The combined remote-speaker transcript still completes with a visible warning. |
 | Model is absent while offline | `test_transcription_engine.py` | The job reports a local-cache error and never silently downloads. |
 | Sixty-minute dual-source timeline | `test_capture_audit.py` | Synthetic one-hour sources stay within 250 ms alignment with no sequence gap. |
