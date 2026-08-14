@@ -18,97 +18,86 @@ def render_meeting_notes(
     transcript: TranscriptDocument,
     structured_notes: StructuredNotesCorrection | None = None,
 ) -> str:
-    """Render a deterministic, editable Markdown record for one transcript."""
+    """Render a deterministic plain-text record for one transcript."""
 
     if session.session_id != transcript.session_id:
         raise ValueError("Meeting session and transcript IDs do not match")
 
     notes = structured_notes or StructuredNotesCorrection()
     lines = [
-        f"# {_escape_markdown(session.title)}",
+        _heading(_plain_text(session.title), "="),
         "",
-        "> Generated locally from recorded audio. Review the transcript before sharing it.",
+        "Generated locally from recorded audio. Review the transcript before sharing it.",
         "",
-        "## Meeting details",
+        _heading("MEETING DETAILS"),
+        f"Recorded: {_format_datetime(session.started_at or session.created_at)}",
+        f"Duration: {_format_duration(transcript.duration_ms)}",
+        f"Language: {_plain_text(transcript.language)}",
+        f"Transcription profile: {_plain_text(transcript.profile.value.title())}",
+        f"Model: {_plain_text(transcript.model)}",
         "",
-        f"- **Recorded:** {_format_datetime(session.started_at or session.created_at)}",
-        f"- **Duration:** {_format_duration(transcript.duration_ms)}",
-        f"- **Language:** {_escape_markdown(transcript.language)}",
-        f"- **Transcription profile:** {_escape_markdown(transcript.profile.value.title())}",
-        f"- **Model:** {_escape_markdown(transcript.model)}",
+        _heading("SUMMARY"),
+        _plain_text(notes.summary) if notes.summary else "No reviewed summary yet.",
         "",
-        "## Summary",
-        "",
-        _escape_markdown(notes.summary) if notes.summary else "_No reviewed summary yet._",
-        "",
-        "## Decisions",
-        "",
+        _heading("DECISIONS"),
     ]
     lines.extend(
-        (f"- {_escape_markdown(decision)}" for decision in notes.decisions)
+        (f"- {_plain_text(decision)}" for decision in notes.decisions)
         if notes.decisions
-        else ("_No reviewed decisions recorded._",)
+        else ("No reviewed decisions recorded.",)
     )
-    lines.extend(("", "## Action items", ""))
+    lines.extend(("", _heading("ACTION ITEMS")))
     lines.extend(
-        (f"- [ ] {_escape_markdown(item)}" for item in notes.action_items)
+        (f"[ ] {_plain_text(item)}" for item in notes.action_items)
         if notes.action_items
-        else ("_No reviewed action items recorded._",)
+        else ("No reviewed action items recorded.",)
     )
-    lines.extend(
-        (
-            "",
-            "## Participants and audio sources",
-            "",
-        )
-    )
+    lines.extend(("", _heading("PARTICIPANTS AND AUDIO SOURCES")))
     for speaker in transcript.speakers:
-        lines.append(
-            f"- **{_escape_markdown(speaker.display_name)}** — {SOURCE_LABELS[speaker.source]}"
-        )
+        lines.append(f"- {_plain_text(speaker.display_name)} — {SOURCE_LABELS[speaker.source]}")
 
-    lines.extend(("", "## Transcript", ""))
+    lines.extend(("", _heading("TRANSCRIPT")))
     speakers = {speaker.speaker_id: speaker for speaker in transcript.speakers}
     if not transcript.segments:
-        lines.append("_No speech was detected._")
+        lines.append(
+            "No reliable speech was detected. Check the selected audio devices and levels."
+        )
     for segment in transcript.segments:
         speaker = speakers[segment.speaker_id]
         timing = f"{_format_timestamp(segment.start_ms)} to {_format_timestamp(segment.end_ms)}"
         source = SOURCE_LABELS[segment.source]
         confidence = (
-            f" · {segment.confidence * 100:.0f}% confidence"
+            f" | {segment.confidence * 100:.0f}% confidence"
             if segment.confidence is not None
             else ""
         )
         lines.extend(
             (
-                f"**{timing} · {_escape_markdown(speaker.display_name)} · {source}{confidence}**",
-                "",
-                _escape_markdown(segment.text),
+                f"{timing} | {_plain_text(speaker.display_name)} | {source}{confidence}",
+                _plain_text(segment.text),
                 "",
             )
         )
 
     lines.extend(
         (
-            "---",
-            "",
-            "## Technical details",
-            "",
-            f"- **Meeting ID:** `{session.session_id}`",
-            f"- **Transcript run:** `{transcript.run_id}`",
-            f"- **Engine:** {_escape_markdown(transcript.engine)}",
-            f"- **Generated:** {_format_datetime(transcript.created_at)}",
+            _heading("TECHNICAL DETAILS"),
+            f"Meeting ID: {session.session_id}",
+            f"Transcript run: {transcript.run_id}",
+            f"Engine: {_plain_text(transcript.engine)}",
+            f"Generated: {_format_datetime(transcript.created_at)}",
             "",
         )
     )
     return "\n".join(lines)
 
 
-def _escape_markdown(text: str) -> str:
-    normalized = re.sub(r"\s+", " ", text).strip()
-    normalized = normalized.replace("\\", "\\\\")
-    return re.sub(r"([`*_[\]<>#|])", r"\\\1", normalized)
+def _heading(text: str, underline: str = "-") -> str:
+    return f"{text}\n{underline * max(3, len(text))}"
+
+
+def _plain_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _format_timestamp(milliseconds: int) -> str:

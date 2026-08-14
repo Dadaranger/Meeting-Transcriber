@@ -33,7 +33,10 @@ from meeting_transcriber.domain.transcript import (
 )
 from meeting_transcriber.storage.application_settings_store import ApplicationSettingsStore
 from meeting_transcriber.storage.first_run_store import FirstRunStore
-from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
+from meeting_transcriber.storage.meeting_notes_store import (
+    MeetingNotesStore,
+    meeting_notes_filename,
+)
 from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.session_store import SessionStore
 from meeting_transcriber.storage.transcript_store import TranscriptStore
@@ -237,10 +240,15 @@ class FakeTranscriptionWorkflow:
             ),
         )
         TranscriptStore(self.sessions.store.root).save_transcript(transcript)
+        session = self.sessions.get_session(self.job.session_id)
         MeetingNotesStore(self.sessions.store.root).save(
             self.job.session_id,
             self.job.job_id,
-            "# Fake meeting notes\n",
+            "Fake meeting notes\n",
+            output_filename=meeting_notes_filename(
+                session.title,
+                session.started_at or session.created_at,
+            ),
         )
         self._processing = False
 
@@ -731,7 +739,17 @@ def test_history_launches_and_completes_offline_transcription(
     assert sessions.get_session(session_id).state is SessionState.READY
     assert window.transcription_page.start_button.text() == "Transcribe again"
     assert window.home_button.isEnabled()
-    assert "Markdown meeting notes saved" in window.statusBar().currentMessage()
+    assert "readable TXT meeting notes saved" in window.statusBar().currentMessage()
+    notes_path = MeetingNotesStore(tmp_path).notes_file(session_id)
+    assert notes_path.name.startswith("Transcript me - ")
+    assert notes_path.suffix == ".txt"
+    assert not window.transcription_page.open_output_button.isHidden()
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.transcription_page.open_output_button,
+        Qt.MouseButton.LeftButton,
+    )
+    assert opened == [notes_path]
+    opened.clear()
     qtbot.mouseClick(window.history_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     assert window.history_page.open_notes_button.isEnabled()
     assert window.history_page.review_button.isEnabled()
@@ -739,7 +757,7 @@ def test_history_launches_and_completes_offline_transcription(
         window.history_page.open_notes_button,
         Qt.MouseButton.LeftButton,
     )
-    assert opened == [tmp_path / session_id / "meeting-notes.md"]
+    assert opened == [notes_path]
 
     qtbot.mouseClick(  # type: ignore[no-untyped-call]
         window.history_page.review_button,
@@ -766,11 +784,11 @@ def test_history_launches_and_completes_offline_transcription(
     )
 
     review = ReviewStore(tmp_path).load(session_id)
-    markdown = MeetingNotesStore(tmp_path).notes_file(session_id).read_text(encoding="utf-8")
+    text = MeetingNotesStore(tmp_path).notes_file(session_id).read_text(encoding="utf-8")
     assert review.revision == 3
     assert review.structured_notes is not None
     assert review.structured_notes.summary == "Launch review"
-    assert "Morgan" in markdown
-    assert "Project Atlas" in markdown
-    assert "## Decisions\n\n- Ship Friday" in markdown
-    assert "- [ ] Morgan: publish notes" in markdown
+    assert "Morgan" in text
+    assert "Project Atlas" in text
+    assert "DECISIONS\n---------\n- Ship Friday" in text
+    assert "[ ] Morgan: publish notes" in text

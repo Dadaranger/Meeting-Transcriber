@@ -13,7 +13,7 @@ from meeting_transcriber.domain.transcript import (
     TranscriptSource,
     TranscriptSpeaker,
 )
-from meeting_transcriber.processing.markdown_export import render_meeting_notes
+from meeting_transcriber.processing.text_export import render_meeting_notes
 
 SESSION_ID = "0781afac-122c-465c-9852-ad8e7c6809d8"
 RUN_ID = "4f51400b-d9a3-4681-b851-ece4d6b4d955"
@@ -64,28 +64,28 @@ def _transcript(*, segments: tuple[TranscriptSegment, ...] | None = None) -> Tra
     )
 
 
-def test_markdown_notes_are_structured_timestamped_and_safely_escaped() -> None:
+def test_text_notes_are_structured_timestamped_and_plain() -> None:
     notes = render_meeting_notes(_session(), _transcript())
 
-    assert notes.startswith("# Project \\[Atlas\\] sync\n")
-    assert "## Meeting details" in notes
-    assert "- **Duration:** 00:01:05" in notes
-    assert "- **Remote speakers** — System audio" in notes
-    assert "**00:00:01.250 to 00:00:03.500 · You · Microphone · 91% confidence**" in notes
-    assert "Review \\*Project Atlas\\* and \\[budget\\]." in notes
+    assert notes.startswith("Project [Atlas] sync\n")
+    assert "MEETING DETAILS\n" in notes
+    assert "Duration: 00:01:05" in notes
+    assert "- Remote speakers — System audio" in notes
+    assert "00:00:01.250 to 00:00:03.500 | You | Microphone | 91% confidence" in notes
+    assert "Review *Project Atlas* and [budget]." in notes
     assert "Approved. Ship it." in notes
-    assert f"- **Transcript run:** `{RUN_ID}`" in notes
+    assert f"Transcript run: {RUN_ID}" in notes
     assert notes.endswith("\n")
 
 
-def test_markdown_notes_make_an_empty_transcript_explicit() -> None:
+def test_text_notes_make_an_empty_transcript_explicit() -> None:
     notes = render_meeting_notes(_session(), _transcript(segments=()))
 
-    assert "- **Duration:** 00:00:00" in notes
-    assert "_No speech was detected._" in notes
+    assert "Duration: 00:00:00" in notes
+    assert "No reliable speech was detected." in notes
 
 
-def test_markdown_notes_render_reviewed_structured_sections() -> None:
+def test_text_notes_render_reviewed_structured_sections() -> None:
     notes = render_meeting_notes(
         _session(),
         _transcript(),
@@ -96,13 +96,13 @@ def test_markdown_notes_render_reviewed_structured_sections() -> None:
         ),
     )
 
-    assert "## Summary\n\nAligned on the Project \\[Atlas\\] launch." in notes
-    assert "## Decisions\n\n- Ship on Friday" in notes
+    assert "SUMMARY\n-------\nAligned on the Project [Atlas] launch." in notes
+    assert "DECISIONS\n---------\n- Ship on Friday" in notes
     assert "- Keep the local-first workflow" in notes
-    assert "## Action items\n\n- [ ] Morgan: publish the revised plan" in notes
+    assert "ACTION ITEMS\n------------\n[ ] Morgan: publish the revised plan" in notes
 
 
-def test_markdown_notes_require_matching_session() -> None:
+def test_text_notes_require_matching_session() -> None:
     other_session = MeetingSession.new("Other", now=START)
 
     with pytest.raises(ValueError, match="IDs do not match"):

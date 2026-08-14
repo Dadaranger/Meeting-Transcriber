@@ -347,7 +347,7 @@ class HomePage(QWidget):
         hero_layout.addWidget(
             _label(
                 "Record microphone and meeting audio, process it locally, review speakers, "
-                "and export a durable Markdown record.",
+                "and export a durable plain-text record.",
                 "muted",
                 wrap=True,
             )
@@ -382,7 +382,7 @@ class HomePage(QWidget):
             ),
             FeatureCard(
                 "Readable export",
-                "Review speaker labels, then produce portable Markdown and JSON files.",
+                "Review speaker labels, then produce portable TXT and JSON files.",
                 "REVIEW",
             ),
         )
@@ -656,6 +656,7 @@ class MainWindow(QMainWindow):
         self.transcription_page.start_requested.connect(self._start_transcription)
         self.transcription_page.cancel_requested.connect(self._cancel_transcription)
         self.transcription_page.back_requested.connect(self._show_history)
+        self.transcription_page.open_output_requested.connect(self._open_saved_output)
         self.pages.addWidget(self.transcription_page)
         self.review_page = TranscriptReviewPage()
         self.review_page.rename_requested.connect(self._rename_review_speaker)
@@ -991,6 +992,8 @@ class MainWindow(QMainWindow):
             session,
             self.transcription_service.job_for(session_id),
         )
+        notes_path = self.notes_store.notes_file(session_id)
+        self.transcription_page.set_output_path(notes_path if notes_path.is_file() else None)
         self.pages.setCurrentWidget(self.transcription_page)
         self.history_button.setChecked(False)
         self.statusBar().showMessage(f"Configure offline transcription - {session.title}")
@@ -1027,6 +1030,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Transcription could not start", str(error))
             return
         self.transcription_page.reset_cancel_control()
+        self.transcription_page.set_output_path(None)
         self.transcription_page.show_job(job)
         self.transcription_timer.start()
         self._set_navigation_enabled(False)
@@ -1057,7 +1061,9 @@ class MainWindow(QMainWindow):
         self._set_navigation_enabled(True)
         self._refresh_history()
         if job.state is TranscriptionJobState.COMPLETED:
-            status = "Transcript and Markdown meeting notes saved"
+            notes_path = self.notes_store.notes_file(job.session_id)
+            self.transcription_page.set_output_path(notes_path if notes_path.is_file() else None)
+            status = "Transcript and readable TXT meeting notes saved"
             if job.warning:
                 status += "; remote-speaker separation was unavailable"
             self.statusBar().showMessage(status, 10_000)
@@ -1066,8 +1072,9 @@ class MainWindow(QMainWindow):
                 "Transcription complete"
                 if not job.warning
                 else "Transcription complete with warning",
-                "The editable meeting-notes.md and timestamped transcript.json were saved "
-                "in the meeting folder." + (f"\n\n{job.warning}" if job.warning else ""),
+                f"The readable transcript was saved here:\n{notes_path}\n\n"
+                "Use Open saved TXT on this page to open it directly."
+                + (f"\n\n{job.warning}" if job.warning else ""),
             )
         elif job.state is TranscriptionJobState.CANCELLED:
             self.statusBar().showMessage("Transcription cancelled; recording preserved", 10_000)
@@ -1116,6 +1123,18 @@ class MainWindow(QMainWindow):
             self,
             "Meeting notes could not be opened",
             f"Open this file manually:\n{notes_path}",
+        )
+
+    def _open_saved_output(self, path_value: str) -> None:
+        output_path = Path(path_value)
+        if output_path.is_file() and self.folder_opener(output_path):
+            self.statusBar().showMessage(f"Opened saved transcript - {output_path}", 8_000)
+            return
+        self.statusBar().showMessage(f"Could not open saved transcript - {output_path}")
+        QMessageBox.warning(
+            self,
+            "Saved transcript could not be opened",
+            f"Open this file manually:\n{output_path}",
         )
 
     def _open_review(self, session_id: str) -> None:
@@ -1226,7 +1245,7 @@ class MainWindow(QMainWindow):
             selected_segment_id=selected_segment,
             saved_message="Reviewed meeting notes saved.",
         )
-        self.statusBar().showMessage("Reviewed notes and Markdown updated", 8_000)
+        self.statusBar().showMessage("Reviewed TXT notes updated", 8_000)
 
     def _recover_session(self, session_id: str) -> None:
         try:

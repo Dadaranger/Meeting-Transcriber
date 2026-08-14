@@ -6,8 +6,11 @@ from pathlib import Path
 from meeting_transcriber.app.session_service import MeetingSessionService
 from meeting_transcriber.domain.review import TranscriptReview
 from meeting_transcriber.domain.transcript import TranscriptDocument
-from meeting_transcriber.processing.markdown_export import render_meeting_notes
-from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
+from meeting_transcriber.processing.text_export import render_meeting_notes
+from meeting_transcriber.storage.meeting_notes_store import (
+    MeetingNotesStore,
+    meeting_notes_filename,
+)
 from meeting_transcriber.storage.review_store import ReviewDataError, ReviewStore
 from meeting_transcriber.storage.transcript_store import (
     TranscriptDataError,
@@ -140,6 +143,10 @@ class MeetingReviewService:
             transcript.session_id,
             transcript.run_id,
             render_meeting_notes(session, reviewed, review.structured_notes),
+            output_filename=meeting_notes_filename(
+                session.title,
+                session.started_at or session.created_at,
+            ),
         )
         return ReviewSnapshot(transcript, review, reviewed, notes_path)
 

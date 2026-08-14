@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -42,10 +44,12 @@ class TranscriptionPage(QWidget):
     start_requested = Signal(str, str, str, str, bool, bool, int, int, bool, str)
     cancel_requested = Signal()
     back_requested = Signal()
+    open_output_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._session_id: str | None = None
+        self._output_path: Path | None = None
 
         root, self.scroll_area = create_scrollable_page(
             self,
@@ -169,6 +173,17 @@ class TranscriptionPage(QWidget):
         setup_layout.addWidget(self.diarization_token_input)
         self.previous_status = _label("", "muted", wrap=True)
         setup_layout.addWidget(self.previous_status)
+        self.output_heading = _label("Saved transcript", "muted")
+        self.output_heading.hide()
+        setup_layout.addWidget(self.output_heading)
+        self.output_path = _label("", "outputPath", wrap=True)
+        self.output_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.output_path.hide()
+        setup_layout.addWidget(self.output_path)
+        self.open_output_button = QPushButton("Open saved TXT")
+        self.open_output_button.clicked.connect(self._emit_open_output)
+        self.open_output_button.hide()
+        setup_layout.addWidget(self.open_output_button)
 
         setup_actions = QHBoxLayout()
         self.back_button = QPushButton("Back to history")
@@ -216,6 +231,7 @@ class TranscriptionPage(QWidget):
         self.progress_card.hide()
         self.start_button.setText("Start offline transcription")
         self.previous_status.setText("")
+        self.set_output_path(None)
         self.diarization_token_input.clear()
         if job is not None:
             self.profile_combo.setCurrentIndex(
@@ -245,6 +261,15 @@ class TranscriptionPage(QWidget):
         self.allow_diarization_download_checkbox.setChecked(False)
         self._update_diarization_controls()
         reset_scroll_position(self.scroll_area)
+
+    def set_output_path(self, path: Path | None) -> None:
+        self._output_path = path
+        visible = path is not None and path.is_file()
+        self.output_heading.setVisible(visible)
+        self.output_path.setVisible(visible)
+        self.open_output_button.setVisible(visible)
+        self.open_output_button.setEnabled(visible)
+        self.output_path.setText(str(path) if visible and path is not None else "")
 
     def show_job(self, job: TranscriptionJob) -> None:
         reset_scroll_position(self.scroll_area)
@@ -295,7 +320,7 @@ class TranscriptionPage(QWidget):
         if job.state is TranscriptionJobState.COMPLETED:
             self.previous_status.setText(
                 job.warning
-                or "Transcript complete. Open meeting-notes.md from History to review or edit it."
+                or "Transcript complete. Open the saved TXT file below to review or edit it."
             )
             self.start_button.setText("Transcribe again")
         else:
@@ -380,3 +405,7 @@ class TranscriptionPage(QWidget):
             access_token,
         )
         self.diarization_token_input.clear()
+
+    def _emit_open_output(self) -> None:
+        if self._output_path is not None and self._output_path.is_file():
+            self.open_output_requested.emit(str(self._output_path))

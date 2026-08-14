@@ -68,7 +68,7 @@ def _snapshot() -> ReviewSnapshot:
         ),
     )
     review = TranscriptReview.new(transcript, at=START)
-    return ReviewSnapshot(transcript, review, transcript, Path("meeting-notes.md"))
+    return ReviewSnapshot(transcript, review, transcript, Path("meeting-notes.txt"))
 
 
 def test_review_page_scrolls_instead_of_compressing_editors(qtbot: QtBot) -> None:
@@ -161,7 +161,7 @@ def test_review_page_reset_controls_restore_model_values(qtbot: QtBot) -> None:
         ("Ship Friday",),
         ("Morgan: publish notes",),
     )
-    corrected = ReviewSnapshot(source, review, review.apply(source), Path("meeting-notes.md"))
+    corrected = ReviewSnapshot(source, review, review.apply(source), Path("meeting-notes.txt"))
     page = TranscriptReviewPage()
     qtbot.addWidget(page)
     page.load_snapshot(_session(), corrected, selected_speaker_id="remote")

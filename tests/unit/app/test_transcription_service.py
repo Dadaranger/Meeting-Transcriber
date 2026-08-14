@@ -252,8 +252,8 @@ def test_transcription_merges_sources_and_persists_ready_transcript(tmp_path: Pa
     ]
     assert transcript.segments[1].words[0].start_ms == 600
     notes = MeetingNotesStore(tmp_path).notes_file(session_id).read_text(encoding="utf-8")
-    assert notes.startswith("# Recorded meeting\n")
-    assert "**00:00:00.100 to 00:00:00.500 · You · Microphone" in notes
+    assert notes.startswith("Recorded meeting\n================\n")
+    assert "00:00:00.100 to 00:00:00.500 | You | Microphone" in notes
     assert "Remote reply" in notes
     assert preparer.run_ids == [started.job_id]
     assert factory.calls == [(TranscriptionProfile.BALANCED, False)]
@@ -422,11 +422,23 @@ class FailOnceNotesStore:
         self.delegate = delegate
         self.calls = 0
 
-    def save(self, session_id: str, run_id: str, markdown: str) -> Path:
+    def save(
+        self,
+        session_id: str,
+        run_id: str,
+        text: str,
+        *,
+        output_filename: str | None = None,
+    ) -> Path:
         self.calls += 1
         if self.calls == 1:
             raise OSError("Synthetic notes write failure")
-        return self.delegate.save(session_id, run_id, markdown)
+        return self.delegate.save(
+            session_id,
+            run_id,
+            text,
+            output_filename=output_filename,
+        )
 
 
 def test_notes_failure_retry_reuses_completed_transcript_without_model_rerun(

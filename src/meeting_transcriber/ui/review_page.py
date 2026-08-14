@@ -60,7 +60,7 @@ class TranscriptReviewPage(QWidget):
         root.addWidget(self.meeting_title)
         root.addWidget(
             _label(
-                "Corrections update the editable Markdown notes while the original model "
+                "Corrections update the editable TXT notes while the original model "
                 "transcript and every saved review revision remain available locally.",
                 "muted",
                 wrap=True,

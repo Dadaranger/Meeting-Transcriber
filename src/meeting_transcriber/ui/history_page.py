@@ -183,7 +183,7 @@ class HistoryPage(QWidget):
                 "Meeting notes are ready. Review speaker labels or transcript text in the app."
             )
         elif has_notes:
-            self.selection_status.setText("Structured Markdown meeting notes are ready to open.")
+            self.selection_status.setText("Structured plain-text meeting notes are ready to open.")
         elif has_transcript:
             self.selection_status.setText("The transcript is ready for speaker and text review.")
         elif can_transcribe:

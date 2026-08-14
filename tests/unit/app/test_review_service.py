@@ -66,7 +66,7 @@ def _ready_review_service(
     return service, draft.session_id, transcripts, reviews, notes
 
 
-def test_review_service_persists_edits_and_regenerates_markdown(tmp_path: Path) -> None:
+def test_review_service_persists_edits_and_regenerates_text(tmp_path: Path) -> None:
     service, session_id, _transcripts, reviews, notes = _ready_review_service(tmp_path)
 
     renamed = service.rename_speaker(session_id, "remote", "Morgan")
@@ -95,14 +95,14 @@ def test_review_service_persists_edits_and_regenerates_markdown(tmp_path: Path) 
     assert reviews.revision_file(corrected.review).is_file()
     assert reviews.revision_file(assigned.review).is_file()
     assert reviews.revision_file(structured.review).is_file()
-    markdown = notes.notes_file(session_id).read_text(encoding="utf-8")
-    assert "Morgan" in markdown
-    assert "Project Atlas" in markdown
-    assert "Project at less" not in markdown
-    assert "Remote speaker 2" in markdown
-    assert "## Summary\n\nLaunch review" in markdown
-    assert "- Ship Friday" in markdown
-    assert "- [ ] Morgan: publish notes" in markdown
+    text = notes.notes_file(session_id).read_text(encoding="utf-8")
+    assert "Morgan" in text
+    assert "Project Atlas" in text
+    assert "Project at less" not in text
+    assert "Remote speaker 2" in text
+    assert "SUMMARY\n-------\nLaunch review" in text
+    assert "- Ship Friday" in text
+    assert "[ ] Morgan: publish notes" in text
 
 
 def test_review_service_rejects_missing_transcript_and_blank_correction(tmp_path: Path) -> None:

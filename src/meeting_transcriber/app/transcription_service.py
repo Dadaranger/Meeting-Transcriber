@@ -30,14 +30,17 @@ from meeting_transcriber.processing.engine import (
     TranscriptionCancelled,
     TranscriptionEngine,
 )
-from meeting_transcriber.processing.markdown_export import render_meeting_notes
 from meeting_transcriber.processing.preparation import (
     AudioPreparationService,
     PreparedAudioChunk,
     PreparedAudioPlan,
 )
 from meeting_transcriber.processing.remote_speaker_service import RemoteSpeakerService
-from meeting_transcriber.storage.meeting_notes_store import MeetingNotesStore
+from meeting_transcriber.processing.text_export import render_meeting_notes
+from meeting_transcriber.storage.meeting_notes_store import (
+    MeetingNotesStore,
+    meeting_notes_filename,
+)
 from meeting_transcriber.storage.review_store import ReviewStore
 from meeting_transcriber.storage.transcript_store import (
     TranscriptNotFoundError,
@@ -63,7 +66,14 @@ class TranscriptionEngineFactory(Protocol):
 
 
 class MeetingNotesWriter(Protocol):
-    def save(self, session_id: str, run_id: str, markdown: str) -> Path: ...
+    def save(
+        self,
+        session_id: str,
+        run_id: str,
+        text: str,
+        *,
+        output_filename: str | None = None,
+    ) -> Path: ...
 
 
 class RemoteSpeakerProcessor(Protocol):
@@ -477,12 +487,20 @@ class MeetingTranscriptionService:
         review = self.review_store.load_for_transcript(transcript)
         if review.revision > 0:
             self.review_store.save(review)
-        markdown = render_meeting_notes(
+        text = render_meeting_notes(
             session,
             review.apply(transcript),
             review.structured_notes,
         )
-        return self.notes_store.save(transcript.session_id, transcript.run_id, markdown)
+        return self.notes_store.save(
+            transcript.session_id,
+            transcript.run_id,
+            text,
+            output_filename=meeting_notes_filename(
+                session.title,
+                session.started_at or session.created_at,
+            ),
+        )
 
     def _restore_recorded_state(self, session_id: str) -> None:
         with suppress(OSError, ValueError):
