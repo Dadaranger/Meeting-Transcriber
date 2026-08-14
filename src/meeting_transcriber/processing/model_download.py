@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,8 +67,18 @@ class _ProgressBar(Protocol):
 
 
 def _load_snapshot_download() -> SnapshotDownload:
+    # Hugging Face enables its optional Xet transport automatically when hf_xet is
+    # installed. On Windows desktop builds that transport can preallocate the full
+    # model while reporting no useful progress, and interrupted transfers can leave
+    # a second unusable partial file. The regular HTTPS downloader is resumable,
+    # observable through tqdm, and considerably easier for users to recover.
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
     try:
         module = importlib.import_module("huggingface_hub")
+        constants = importlib.import_module("huggingface_hub.constants")
+        # The constants module may already have been imported by faster-whisper.
+        # Keep its in-process value aligned with the environment override.
+        constants.__dict__["HF_HUB_DISABLE_XET"] = True
         return cast(SnapshotDownload, module.snapshot_download)
     except (ImportError, AttributeError) as error:
         raise ModelDownloadDependencyUnavailable(
@@ -195,7 +207,12 @@ class TranscriptionModelManager:
         except (ModelDownloadCancelled, ModelDownloadDependencyUnavailable, ModelDownloadError):
             raise
         except Exception as error:
-            raise ModelDownloadError(f"Could not download speech model {model_name}") from error
+            detail = _safe_error_detail(error)
+            raise ModelDownloadError(
+                f"Could not download speech model {model_name}. {detail} "
+                "Check the internet connection and retry; an interrupted download does not "
+                "remove recordings."
+            ) from error
 
         return ModelDownloadResult(
             repo_id=repo_id,
@@ -210,3 +227,13 @@ class TranscriptionModelManager:
         if not isinstance(value, int) or value < 0:
             raise ModelDownloadError("Speech model returned an invalid file size")
         return value
+
+
+def _safe_error_detail(error: Exception) -> str:
+    """Return useful diagnostics without exposing signed URL query parameters."""
+    detail = " ".join(str(error).split())
+    detail = re.sub(r"(https?://[^?\s]+)\?[^\s]+", r"\1?[redacted]", detail)
+    if len(detail) > 300:
+        detail = f"{detail[:297]}..."
+    error_type = type(error).__name__
+    return f"{error_type}: {detail}" if detail else error_type

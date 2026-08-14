@@ -25,7 +25,7 @@ analysis = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["pyannote", "torch", "torchaudio"],
+    excludes=["pyannote", "torch", "torchaudio", "hf_xet"],
     noarchive=False,
     optimize=1,
 )

@@ -133,7 +133,7 @@ With Inno Setup 6 installed, create the per-user installer, portable ZIP, and
 checksums with:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.0
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.1
 ```
 
 The installer never deletes meeting data or model caches during uninstall. See
