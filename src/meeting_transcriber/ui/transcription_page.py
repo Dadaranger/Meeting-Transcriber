@@ -54,9 +54,7 @@ class TranscriptionPage(QWidget):
             spacing=16,
         )
         root.addWidget(_label("OFFLINE TRANSCRIPTION", "eyebrow"))
-        root.addWidget(
-            _label("Create a timestamped local transcript", "pageTitle", wrap=True)
-        )
+        root.addWidget(_label("Create a timestamped local transcript", "pageTitle", wrap=True))
         root.addWidget(
             _label(
                 "Audio and generated text stay on this computer. A model may need to be "
