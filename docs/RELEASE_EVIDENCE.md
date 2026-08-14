@@ -6,34 +6,43 @@ evidence record, not a substitute for [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST
 
 ## Audited application checkpoint
 
-- Application commit: `cc691af` (`codex/model-download-readiness`, PR
+- Application commit: `cb5f175` (`codex/model-download-readiness`, PR
   [#17](https://github.com/Dadaranger/Meeting-Transcriber/pull/17))
 - Audit host: Windows 10 `10.0.19045`, Python 3.13.9
-- Audit date: 2026-08-11
+- Audit date: 2026-08-13
 - Release version under test: `0.1.0`
 
 ## Automated evidence
 
 | Requirement | Evidence | Result |
 | --- | --- | --- |
-| Repeatable locked checks | `scripts/release_readiness.ps1` ran the locked sync, formatting, lint, strict typing, full tests, failure gates, and frozen build | Pass |
-| Unit, integration, and UI behavior | 163 tests | Pass |
+| Repeatable locked checks | Locked formatting, lint, strict typing, full tests, and a clean frozen build ran on the audited commit | Pass |
+| Unit, integration, and UI behavior | 165 tests | Pass |
 | Failure injection and synthetic one-hour audit | 29 selected tests from [`FAILURE_TEST_MATRIX.md`](FAILURE_TEST_MATRIX.md) | Pass |
-| Windows CI on Python 3.12 and 3.13 | GitHub Actions run [31570993085](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31570993085) | Pass |
-| Frozen desktop runtime | Local clean PyInstaller build and the extracted hosted portable `MeetingTranscriber.exe --package-smoke-test` | Pass; hosted process exit code 0 and version 0.1.0 |
-| Installer compilation, archive, checksums, provenance, and artifact upload | GitHub Actions run [31570993081](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31570993081) completed every required untagged step | Pass |
-| Hosted artifact identity | `meeting-transcriber-windows-31570993081`, 224,082,871-byte upload containing the installer, portable ZIP, and checksum manifest | Pass |
+| Windows CI on Python 3.12 and 3.13 | GitHub Actions PR run [31770036184](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31770036184) and push run [31770033437](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31770033437) | Pass |
+| Frozen desktop runtime | Clean local PyInstaller build ran the marker-backed package smoke test and a normal launch produced a responding `Meeting Transcriber` window | Pass |
+| Installer compilation, archive, checksums, provenance, and artifact upload | GitHub Actions run [31770036177](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31770036177) completed every required untagged step | Pass |
+| Hosted artifact identity | `meeting-transcriber-windows-31770036177`, 224,084,324-byte upload containing the installer, portable ZIP, and checksum manifest | Pass |
 | Hosted artifact integrity | Downloaded both files; calculated SHA-256 values matched `SHA256SUMS.txt`; `gh attestation verify` succeeded for each file | Pass |
-| Current-host installer lifecycle | Installed the exact hosted artifact into an isolated directory, launched its packaged smoke test, and silently uninstalled it | Pass; install, smoke, and uninstall exit codes 0; installed version 0.1.0 |
+| Current-host installer launch | Installed the exact hosted artifact over the prior per-user copy and launched it normally | Pass; installer exit code 0; process remained responsive with a nonzero window handle and title `Meeting Transcriber` |
+| Packaging regression defense | The build now freezes `meeting_transcriber.__main__` and requires versioned marker evidence from the executing entry point | Pass; a definitions-only executable can no longer satisfy the smoke check |
 | Uninstall model-cache safety | Counted the two local model-cache roots before and after isolated uninstall | Pass; all 14 files remained and the isolated application directory was removed |
 | Real Windows device enumeration | `meeting-transcriber-audio-devices` found two WASAPI microphone inputs and one default 48 kHz WASAPI loopback endpoint without opening a stream | Pass for discovery only |
 | Explicit model acquisition | Real `small` snapshot acquisition reported persisted progress through 486,212,372 bytes, then the engine loaded with `local_files_only=True` | Pass |
 | Real offline transcription fixture | A fresh cache-only CPU/int8 engine transcribed [OpenAI Whisper's 10.36-second English JFK fixture](https://github.com/openai/whisper/blob/main/tests/jfk.flac) in 7.8 seconds | Pass for this single fixture |
 
-Hosted PR #17 artifact SHA-256 values:
+Hosted PR #17 run `31770036177` artifact SHA-256 values:
 
-- Portable ZIP: `045c758d60f8f1919b0e63e5f0edc183afbaa96987849ca6d9925f2bf6ae30c2`
-- Installer: `4dab17150b74082ca1c5c61d3c459e453328fec26f2d44c76954bc9b89f24ffe`
+- Portable ZIP: `3ddc047caf1620987d437eb93370ab016f7690d4a7d94c0f1f2af2043a0d9f9e`
+- Installer: `5d732df292b72fa99ee029f857bc16dc0abcc53fa51d521a3153d077af84c381`
+
+The earlier hosted artifact from run `31570993081` is superseded. Its frozen
+executable used `main.py` as the PyInstaller script, which defined `main()` but did
+not invoke it. That executable therefore exited successfully without showing a
+window, and its old exit-code-only package smoke check was a false positive. Commit
+`cb5f175` corrects the entry point and makes the smoke test require evidence written
+by the running application. The exact corrected hosted installer was also launched
+through the normal no-argument path on the audit host.
 
 ## Real small-model qualification
 
@@ -73,7 +82,7 @@ Do not turn a row into “pass” based only on unit tests or a simulated device
 
 | Gate | Required evidence | Status |
 | --- | --- | --- |
-| Clean-machine installer | Install and launch the exact GitHub artifact on Windows 10 and Windows 11 x64 with no Python | Current-host isolated lifecycle passed; clean Windows 10/11 machines not run |
+| Clean-machine installer | Install and launch the exact GitHub artifact on Windows 10 and Windows 11 x64 with no Python | Current-host exact-installer normal launch passed; separate clean Windows 10/11 machines not run |
 | Real meeting capture | Microphone and selected WASAPI loopback both produce audible finalized chunks; device loss is reported clearly | Device discovery passed; recording not run |
 | Long-session reliability | Real uninterrupted 60-minute dual-source meeting plus capture-audit output showing no gaps and no more than 250 ms drift | Not run |
 | Offline speech accuracy | Human-reviewed representative samples for each intended language/profile with evaluator JSON, timing, CPU, memory, and real-time factor | Partial: one clean English `small` fixture passed at WER 0.0 and RTF 0.753; representative meetings and other profiles/languages remain |
