@@ -19,6 +19,7 @@ def test_release_versions_stay_synchronized() -> None:
     assert project["project"]["version"] == __version__
     assert f"StringStruct('ProductVersion', '{__version__}')" in version_resource
     assert f'#define AppVersion "{__version__}"' in installer
+    assert 'Name: "{app}\\_internal\\hf_xet"' in installer
 
 
 def test_installer_is_per_user_and_never_deletes_meeting_data() -> None:
