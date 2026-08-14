@@ -67,12 +67,15 @@ class _StreamAudioManager(_AudioManager, Protocol):
     def terminate(self) -> None: ...
 
 
-class _PyAudioModule(Protocol):
+class _PyAudioDiscoveryModule(Protocol):
     paWASAPI: int
-    paInt16: int
-    paContinue: int
 
     def PyAudio(self) -> _AudioManager: ...
+
+
+class _PyAudioModule(_PyAudioDiscoveryModule, Protocol):
+    paInt16: int
+    paContinue: int
 
 
 def _load_pyaudio_module() -> _PyAudioModule:
@@ -205,7 +208,7 @@ def _stable_device_id(
 class PyAudioWPatchDeviceBackend:
     """Discover Windows WASAPI inputs using PyAudioWPatch virtual loopback devices."""
 
-    def __init__(self, module: _PyAudioModule | None = None):
+    def __init__(self, module: _PyAudioDiscoveryModule | None = None):
         self._module = module
 
     def discover_devices(self) -> AudioDeviceCatalog:
