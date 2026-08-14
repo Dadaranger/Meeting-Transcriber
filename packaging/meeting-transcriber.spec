@@ -13,7 +13,7 @@ faster_whisper_datas, faster_whisper_binaries, faster_whisper_imports = collect_
 ctranslate_datas, ctranslate_binaries, ctranslate_imports = collect_all("ctranslate2")
 
 analysis = Analysis(
-    [str(source_root / "meeting_transcriber" / "main.py")],
+    [str(source_root / "meeting_transcriber" / "__main__.py")],
     pathex=[str(source_root)],
     binaries=faster_whisper_binaries + ctranslate_binaries,
     datas=(

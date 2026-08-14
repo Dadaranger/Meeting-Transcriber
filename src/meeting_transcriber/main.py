@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
@@ -37,14 +38,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments == ["--version"]:
         print(__version__)
         return 0
-    if arguments in (["--smoke-test"], ["--package-smoke-test"]):
-        if arguments == ["--package-smoke-test"]:
+    package_smoke_marker = _package_smoke_marker(arguments)
+    if arguments == ["--smoke-test"] or package_smoke_marker is not None:
+        if package_smoke_marker is not None:
             importlib.import_module("faster_whisper")
             importlib.import_module("pyaudiowpatch")
         app = create_application(["meeting-transcriber", "-platform", "offscreen"])
         app.processEvents()
+        if package_smoke_marker is not None:
+            package_smoke_marker.write_text(
+                f"meeting-transcriber-package-smoke:{__version__}\n",
+                encoding="utf-8",
+            )
         return 0
     app = create_application([sys.argv[0], *arguments])
     window = MainWindow()
     window.show()
     return app.exec()
+
+
+def _package_smoke_marker(arguments: Sequence[str]) -> Path | None:
+    if arguments == ["--package-smoke-test"]:
+        return Path.cwd() / "meeting-transcriber-package-smoke.txt"
+    if len(arguments) != 1 or not arguments[0].startswith("--package-smoke-test="):
+        return None
+    raw_path = arguments[0].partition("=")[2].strip()
+    return Path(raw_path) if raw_path else None

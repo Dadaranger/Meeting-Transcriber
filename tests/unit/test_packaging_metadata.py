@@ -51,3 +51,15 @@ def test_ci_installs_the_optional_transcription_runtime_it_tests() -> None:
     )[0]
 
     assert "uv sync --frozen --extra dev --extra transcription" in install_step
+
+
+def test_windows_bundle_runs_the_real_entry_point_and_requires_smoke_evidence() -> None:
+    specification = (REPOSITORY_ROOT / "packaging/meeting-transcriber.spec").read_text(
+        encoding="utf-8"
+    )
+    build_script = (REPOSITORY_ROOT / "scripts/build_windows.ps1").read_text(encoding="utf-8")
+
+    assert 'meeting_transcriber" / "__main__.py"' in specification
+    assert 'meeting_transcriber" / "main.py"' not in specification
+    assert "--package-smoke-test={0}" in build_script
+    assert "entry point did not produce its smoke marker" in build_script

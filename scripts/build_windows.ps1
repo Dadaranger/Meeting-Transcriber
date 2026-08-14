@@ -30,18 +30,31 @@ try {
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw "Expected application executable was not produced: $executable"
     }
+    $smokeMarker = Join-Path $repositoryRoot "build\pyinstaller\package-smoke-ok.txt"
+    Remove-Item -LiteralPath $smokeMarker -Force -ErrorAction SilentlyContinue
+    $smokeArgument = '"--package-smoke-test={0}"' -f $smokeMarker
     $smokeTest = Start-Process `
         -FilePath $executable `
-        -ArgumentList "--package-smoke-test" `
+        -ArgumentList $smokeArgument `
         -Wait `
         -PassThru `
         -WindowStyle Hidden
     if ($smokeTest.ExitCode -ne 0) {
         throw "Packaged application smoke test failed with exit code $($smokeTest.ExitCode)."
     }
+    if (-not (Test-Path -LiteralPath $smokeMarker -PathType Leaf)) {
+        throw "Packaged application entry point did not produce its smoke marker."
+    }
+    $smokeEvidence = (Get-Content -LiteralPath $smokeMarker -Raw).Trim()
+    if ($smokeEvidence -notmatch '^meeting-transcriber-package-smoke:\d+\.\d+\.\d+$') {
+        throw "Packaged application produced invalid smoke evidence: $smokeEvidence"
+    }
     Write-Output $executable
 }
 finally {
+    if ($smokeMarker) {
+        Remove-Item -LiteralPath $smokeMarker -Force -ErrorAction SilentlyContinue
+    }
     Remove-Item Env:SOURCE_DATE_EPOCH -ErrorAction SilentlyContinue
     Pop-Location
 }
