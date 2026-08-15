@@ -136,4 +136,12 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/installer/* --generate-notes --verify-tag
+        run: |
+          $releaseArguments = @(
+            "release", "create", "${{ github.ref_name }}", "dist/installer/*",
+            "--generate-notes", "--verify-tag"
+          )
+          if ("${{ github.ref_name }}" -match "-") {
+            $releaseArguments += "--prerelease"
+          }
+          & gh @releaseArguments

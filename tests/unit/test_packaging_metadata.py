@@ -49,6 +49,16 @@ def test_workflow_artifact_name_is_safe_for_pull_request_refs() -> None:
     assert "github.ref_name" not in upload_step
 
 
+def test_preview_version_tags_publish_as_prereleases() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/windows-package.yml").read_text(
+        encoding="utf-8"
+    )
+    publish_step = workflow.split("- name: Publish tagged GitHub release", maxsplit=1)[1]
+
+    assert 'if ("${{ github.ref_name }}" -match "-")' in publish_step
+    assert '$releaseArguments += "--prerelease"' in publish_step
+
+
 def test_ci_installs_the_optional_transcription_runtime_it_tests() -> None:
     workflow = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     install_step = workflow.split("- name: Install locked dependencies", maxsplit=1)[1].split(

@@ -18,11 +18,11 @@ provider.
 
 ## Download for Windows
 
-### [Download the Meeting Transcriber 0.1.3 installer](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3/Meeting-Transcriber-0.1.3-Setup.exe)
+### [Download the Meeting Transcriber 0.1.3 preview installer](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3-preview.1/Meeting-Transcriber-0.1.3-Setup.exe)
 
 You can also download the
-[portable ZIP](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3/Meeting-Transcriber-0.1.3-portable.zip)
-or [verify the SHA-256 checksums](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3/SHA256SUMS.txt).
+[portable ZIP](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3-preview.1/Meeting-Transcriber-0.1.3-portable.zip)
+or [verify the SHA-256 checksums](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3-preview.1/SHA256SUMS.txt).
 
 The installer includes the desktop application, Python runtime, Windows audio
 capture, and offline transcription engine. You do not need to install Python or use
