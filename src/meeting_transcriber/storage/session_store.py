@@ -7,12 +7,18 @@ from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import cast
-from uuid import UUID
 
 from meeting_transcriber.domain.session import (
     ConsentCaptureSource,
     MeetingSession,
     SessionState,
+)
+from meeting_transcriber.storage.session_paths import (
+    SessionPathError,
+    allocate_session_directory,
+    find_session_directory,
+    normalize_session_id,
+    resolve_session_directory,
 )
 
 
@@ -166,16 +172,24 @@ class SessionStore:
 
     def session_directory(self, session_id: str) -> Path:
         try:
-            normalized_id = str(UUID(session_id))
-        except ValueError as error:
-            raise SessionDataError("session_id must be a UUID") from error
-        return self.root / normalized_id
+            return resolve_session_directory(self.root, session_id)
+        except SessionPathError as error:
+            raise SessionDataError(str(error)) from error
 
     def session_file(self, session_id: str) -> Path:
         return self.session_directory(session_id) / "session.json"
 
     def save(self, session: MeetingSession) -> Path:
-        directory = self.session_directory(session.session_id)
+        try:
+            directory = find_session_directory(self.root, session.session_id)
+            if directory is None:
+                directory = allocate_session_directory(
+                    self.root,
+                    session.title,
+                    session.created_at,
+                )
+        except SessionPathError as error:
+            raise SessionDataError(str(error)) from error
         directory.mkdir(parents=True, exist_ok=True)
         destination = directory / "session.json"
         document = _to_document(session)
@@ -202,24 +216,66 @@ class SessionStore:
         path = self.session_file(session_id)
         if not path.is_file():
             raise SessionNotFoundError(f"Meeting session not found: {session_id}")
+        session = self._load_path(path)
+        try:
+            normalized_id = normalize_session_id(session_id)
+        except SessionPathError as error:
+            raise SessionDataError(str(error)) from error
+        if session.session_id != normalized_id:
+            raise SessionDataError("Session document ID does not match the requested session")
+        return session
+
+    @staticmethod
+    def _load_path(path: Path) -> MeetingSession:
         try:
             raw_document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
-            raise SessionDataError(f"Could not read meeting session: {session_id}") from error
+            raise SessionDataError(f"Could not read meeting session: {path}") from error
         if not isinstance(raw_document, dict):
             raise SessionDataError("Session document must be a JSON object")
         document = cast(dict[str, object], raw_document)
-        session = _from_document(document)
-        if session.session_id != str(UUID(session_id)):
-            raise SessionDataError("Session document ID does not match its directory")
-        return session
+        return _from_document(document)
 
     def list_sessions(self) -> list[MeetingSession]:
         if not self.root.is_dir():
             return []
         sessions = [
-            self.load(path.parent.name)
+            self._load_path(path)
             for path in self.root.glob("*/session.json")
             if path.is_file()
         ]
         return sorted(sessions, key=lambda session: session.updated_at, reverse=True)
+
+    def migrate_legacy_directories(self) -> tuple[tuple[Path, Path], ...]:
+        """Rename valid UUID folders without changing any meeting contents."""
+
+        if not self.root.is_dir():
+            return ()
+        migrations: list[tuple[Path, Path]] = []
+        for directory in sorted(self.root.iterdir()):
+            if not directory.is_dir():
+                continue
+            try:
+                directory_id = normalize_session_id(directory.name)
+            except SessionPathError:
+                continue
+            session_file = directory / "session.json"
+            if not session_file.is_file():
+                continue
+            try:
+                session = self._load_path(session_file)
+            except SessionDataError:
+                continue
+            if session.session_id != directory_id:
+                continue
+            try:
+                destination = allocate_session_directory(
+                    self.root,
+                    session.title,
+                    session.created_at,
+                )
+            except SessionPathError as error:
+                raise SessionDataError(str(error)) from error
+            directory.rename(destination)
+            migrations.append((directory, destination))
+        return tuple(migrations)

@@ -591,6 +591,14 @@ class MainWindow(QMainWindow):
             else default_meetings_directory()
         )
         self.session_service = session_service or MeetingSessionService(SessionStore(meeting_root))
+        migrated_meeting_directories: tuple[tuple[Path, Path], ...] = ()
+        meeting_directory_migration_error: OSError | None = None
+        try:
+            migrated_meeting_directories = (
+                self.session_service.store.migrate_legacy_directories()
+            )
+        except OSError as error:
+            meeting_directory_migration_error = error
         self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
         self.first_run_store = first_run_store or (
             FirstRunStore(default_first_run_state_file()) if uses_default_storage else None
@@ -682,7 +690,15 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(shell)
 
         status = QStatusBar()
-        if abandoned_sessions or recovered_transcriptions:
+        if meeting_directory_migration_error is not None:
+            status.showMessage(
+                "Some meeting folders could not be renamed - existing meetings remain available"
+            )
+        elif migrated_meeting_directories:
+            status.showMessage(
+                f"Made {len(migrated_meeting_directories)} existing meeting folder(s) readable"
+            )
+        elif abandoned_sessions or recovered_transcriptions:
             status.showMessage(
                 f"Recovered {len(abandoned_sessions)} recording and "
                 f"{len(recovered_transcriptions)} transcription state(s)"

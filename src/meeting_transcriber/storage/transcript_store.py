@@ -19,6 +19,7 @@ from meeting_transcriber.domain.transcript import (
     TranscriptSpeaker,
     TranscriptWord,
 )
+from meeting_transcriber.storage.session_paths import SessionPathError, resolve_session_directory
 
 
 class TranscriptDataError(ValueError):
@@ -330,10 +331,9 @@ class TranscriptStore:
 
     def _session_directory(self, session_id: str) -> Path:
         try:
-            normalized = str(UUID(session_id))
-        except ValueError as error:
-            raise TranscriptDataError("session_id must be a UUID") from error
-        return self.meeting_root / normalized
+            return resolve_session_directory(self.meeting_root, session_id)
+        except SessionPathError as error:
+            raise TranscriptDataError(str(error)) from error
 
     @staticmethod
     def _save_document(path: Path, document: Mapping[str, object]) -> None:

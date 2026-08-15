@@ -32,6 +32,7 @@ def test_session_round_trip_uses_versioned_json(tmp_path: Path) -> None:
     assert document["schema_version"] == MeetingSession.SCHEMA_VERSION
     assert document["state"] == "draft"
     assert document["consent"] is None
+    assert path.parent.name == f"Design review - {START.astimezone():%Y-%m-%d %H%M%S}"
     assert list(path.parent.glob("*.tmp")) == []
 
 
@@ -123,3 +124,54 @@ def test_list_sessions_returns_most_recent_first(tmp_path: Path) -> None:
     store.save(newer)
 
     assert store.list_sessions() == [newer, older]
+
+
+def test_session_folder_name_is_windows_safe_and_readable(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    session = MeetingSession.new(
+        '  Project: Atlas / planning?  ',
+        session_id=SESSION_ID,
+        now=START,
+    )
+
+    path = store.save(session)
+
+    assert path.parent.name == f"Project Atlas planning - {START.astimezone():%Y-%m-%d %H%M%S}"
+    assert store.load(SESSION_ID) == session
+
+
+def test_legacy_uuid_folder_is_migrated_with_all_contents(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    session = MeetingSession.new("Design review", session_id=SESSION_ID, now=START)
+    readable_directory = store.save(session).parent
+    legacy_directory = tmp_path / SESSION_ID
+    readable_directory.rename(legacy_directory)
+    audio_file = legacy_directory / "audio" / "microphone.wav"
+    audio_file.parent.mkdir()
+    audio_file.write_bytes(b"recording")
+
+    migrations = store.migrate_legacy_directories()
+
+    assert len(migrations) == 1
+    source, destination = migrations[0]
+    assert source == legacy_directory
+    assert destination.name == f"Design review - {START.astimezone():%Y-%m-%d %H%M%S}"
+    assert not legacy_directory.exists()
+    assert (destination / "audio" / "microphone.wav").read_bytes() == b"recording"
+    assert store.load(SESSION_ID) == session
+
+
+def test_legacy_folder_migration_uses_a_suffix_for_name_collisions(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    session = MeetingSession.new("Design review", session_id=SESSION_ID, now=START)
+    readable_directory = store.save(session).parent
+    legacy_directory = tmp_path / SESSION_ID
+    readable_directory.rename(legacy_directory)
+    collision = tmp_path / f"Design review - {START.astimezone():%Y-%m-%d %H%M%S}"
+    collision.mkdir()
+
+    migrations = store.migrate_legacy_directories()
+
+    assert migrations[0][1].name == (
+        f"Design review - {START.astimezone():%Y-%m-%d %H%M%S} (2)"
+    )

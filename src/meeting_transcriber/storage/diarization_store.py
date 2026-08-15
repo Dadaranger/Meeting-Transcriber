@@ -10,6 +10,7 @@ from typing import cast
 from uuid import UUID
 
 from meeting_transcriber.domain.diarization import DiarizationDocument, DiarizationTurn
+from meeting_transcriber.storage.session_paths import SessionPathError, resolve_session_directory
 
 
 class DiarizationDataError(ValueError):
@@ -58,7 +59,10 @@ class DiarizationStore:
         return document
 
     def _session_directory(self, session_id: str) -> Path:
-        return self.meeting_root / self._uuid(session_id, "session_id")
+        try:
+            return resolve_session_directory(self.meeting_root, session_id)
+        except SessionPathError as error:
+            raise DiarizationDataError(str(error)) from error
 
     @staticmethod
     def _uuid(value: str, field: str) -> str:
