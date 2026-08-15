@@ -6,25 +6,27 @@ evidence record, not a substitute for [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST
 
 ## Audited application checkpoint
 
-- Application commit: `d2955a1` (`codex/model-download-readiness`, PR
+- Application commit: `3eb5819` (`codex/model-download-readiness`, PR
   [#17](https://github.com/Dadaranger/Meeting-Transcriber/pull/17))
 - Audit host: Windows 10 `10.0.19045`, Python 3.13.9
-- Audit date: 2026-08-14
-- Release version under test: `0.1.2`
+- Audit date: 2026-08-15
+- Release version under test: `0.1.3`
 
 ## Automated evidence
 
 | Requirement | Evidence | Result |
 | --- | --- | --- |
 | Repeatable locked checks | Locked formatting, lint, strict typing, full tests, and a clean frozen build ran on the audited commit | Pass |
-| Unit, integration, and UI behavior | 175 tests | Pass |
+| Unit, integration, and UI behavior | 179 tests | Pass |
 | Failure injection and synthetic one-hour audit | 29 selected tests from [`FAILURE_TEST_MATRIX.md`](FAILURE_TEST_MATRIX.md) | Pass |
-| Windows CI on Python 3.12 and 3.13 | GitHub Actions runs [31819298437](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31819298437) and [31819293564](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31819293564) | Pass |
-| Frozen desktop runtime | Clean local 0.1.2 PyInstaller build and the installed hosted artifact ran the marker-backed package smoke test | Pass |
-| Installer compilation, archive, checksums, provenance, and artifact upload | GitHub Actions run [31819298420](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31819298420) completed every required untagged step | Pass |
-| Hosted artifact identity | `meeting-transcriber-windows-31819298420`, containing the 84,745,867-byte installer, 133,772,308-byte portable ZIP, and checksum manifest | Pass |
+| Windows CI on Python 3.12 and 3.13 | GitHub Actions runs [31913358077](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31913358077) and [31913356493](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31913356493) | Pass |
+| Frozen desktop runtime | Clean local 0.1.3 PyInstaller build and the installed hosted artifact ran the marker-backed package smoke test | Pass; file version, product version, and marker all report `0.1.3` |
+| Installer compilation, archive, checksums, provenance, and artifact upload | GitHub Actions run [31913358078](https://github.com/Dadaranger/Meeting-Transcriber/actions/runs/31913358078) completed every required untagged step | Pass |
+| Hosted artifact identity | `meeting-transcriber-windows-31913358078`, containing the 84,752,510-byte installer, 133,777,775-byte portable ZIP, and checksum manifest | Pass |
 | Hosted artifact integrity | Downloaded both files; calculated SHA-256 values matched `SHA256SUMS.txt`; `gh attestation verify` succeeded for each file | Pass |
-| Current-host installer upgrade | Installed the exact hosted 0.1.2 artifact over 0.1.1 and ran the marker-backed installed-package smoke test | Pass; file/product version and marker all report `0.1.2`; three meetings and the 1,527,906,378-byte medium model remained |
+| Current-host installer upgrade | Installed the exact hosted 0.1.3 artifact over 0.1.2 and ran the marker-backed installed-package smoke test | Pass; four meetings (30 files) matched their pre-migration SHA-256 hashes; all 13 model files totaling 2,016,786,118 bytes remained |
+| Readable meeting-folder migration | Migrated all four current-host UUID folders and resolved every artifact by the session ID inside `session.json` | Pass; names now use the meeting title and local creation timestamp; folder contents were unchanged |
+| Selected-option visibility | Rendered the real Qt transcription page with both options selected and asserted the checked-state stylesheet | Pass; selected indicators are solid high-contrast teal, including the disabled checked state |
 | Real callback loopback capture | Played three Windows notification sounds through the default Realtek output and captured them with the application callback stream | Pass; 792 callback packets, 405,504 stereo frames (8.448 seconds), peak 0.32953 |
 | Quiet-audio fallback | Re-ran the saved low-level microphone recording through the two-stage medium engine | Pass for detection behavior; the fallback returned three segments where standard VAD returned none, but 0.317–0.473 confidence is not an accuracy qualification |
 | Packaging regression defense | The build now freezes `meeting_transcriber.__main__` and requires versioned marker evidence from the executing entry point | Pass; a definitions-only executable can no longer satisfy the smoke check |
@@ -34,10 +36,10 @@ evidence record, not a substitute for [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST
 | Explicit model acquisition | Real `small` and `medium` snapshot acquisition completed; `medium` reported progress through 1,530,571,735 allowed-file bytes and then loaded with `local_files_only=True` | Pass |
 | Real offline transcription fixture | A fresh cache-only CPU/int8 engine transcribed [OpenAI Whisper's 10.36-second English JFK fixture](https://github.com/openai/whisper/blob/main/tests/jfk.flac) in 7.8 seconds | Pass for this single fixture |
 
-Hosted PR #17 run `31819298420` artifact SHA-256 values:
+Hosted PR #17 run `31913358078` artifact SHA-256 values:
 
-- Portable ZIP: `54b7e9af8b252c37253b92ad952d5bb854525ff86e6643f91daddbc86fe46862`
-- Installer: `b6f19097f3777c8a360f08e0553e136417aa9aac7bc617e2dd9b26dd2a27362d`
+- Portable ZIP: `81bf2199f591f72a308db808d13209134c735848fb8a2730cef24662ce79bc38`
+- Installer: `ed69231840259aaede70d842f4652a223e0ad2de7f93f97f3addcd3521098617`
 
 The earlier hosted artifact from run `31570993081` is superseded. Its frozen
 executable used `main.py` as the PyInstaller script, which defined `main()` but did
@@ -61,6 +63,14 @@ had missed. Commit `87289eb` makes Diagnostics vertically responsive, simplifies
 spans History actions, wraps long page titles, and stacks the Review form, notes, and
 segment editor. The native 960×640 renders and updated UI assertions cover the real
 main-window width after its 250-pixel sidebar.
+
+The 0.1.3 follow-up removes another implementation detail from the user-facing data
+folder. New meetings are stored as `Meeting title - YYYY-MM-DD HHMMSS`; startup safely
+renames valid legacy UUID folders, and every artifact store locates the folder by the
+stable session ID inside `session.json`. The installed-host migration renamed four
+folders while preserving the hashes of all 30 files. The same release replaces the
+hollow checked-checkbox border with a solid teal indicator, verified in a rendered
+transcription setup page.
 
 The first `medium` attempt also exposed an unreliable automatic Xet transfer: it
 preallocated an opaque temporary model file and left a duplicate after interruption.
@@ -112,7 +122,7 @@ Do not turn a row into “pass” based only on unit tests or a simulated device
 
 | Gate | Required evidence | Status |
 | --- | --- | --- |
-| Clean-machine installer | Install and launch the exact GitHub artifact on Windows 10 and Windows 11 x64 with no Python | Current-host exact 0.1.2 install and packaged smoke passed; interactive launch confirmation and separate clean Windows 10/11 machines remain |
+| Clean-machine installer | Install and launch the exact GitHub artifact on Windows 10 and Windows 11 x64 with no Python | Current-host exact 0.1.3 install and packaged smoke passed; interactive launch confirmation and separate clean Windows 10/11 machines remain |
 | Real meeting capture | Microphone and selected WASAPI loopback both produce audible finalized chunks; device loss is reported clearly | Partial: the original 50-second run exposed a 0.02-second loopback failure; callback capture then retained 8.448 seconds of audible Realtek system output. Repeat a simultaneous live meeting with microphone speech before promotion |
 | Long-session reliability | Real uninterrupted 60-minute dual-source meeting plus capture-audit output showing no gaps and no more than 250 ms drift | Not run |
 | Offline speech accuracy | Human-reviewed representative samples for each intended language/profile with evaluator JSON, timing, CPU, memory, and real-time factor | Partial: one clean English `small` fixture passed at WER 0.0 and RTF 0.753; representative meetings and other profiles/languages remain |
