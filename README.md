@@ -1,208 +1,199 @@
 # Meeting Transcriber
 
-Meeting Transcriber is a desktop application that records a meeting's
-microphone and computer audio, transcribes the conversation locally, separates
-speakers where possible, and exports a structured, human-readable meeting file.
+Record online meetings from your Windows desktop, transcribe them locally, and open
+the result as a readable TXT file.
 
-The application is under active development. The first supported platform is
-Windows, where WASAPI loopback capture can record the audio played by meeting
-applications without requiring a bot to join the call.
+[![Windows CI](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/ci.yml/badge.svg)](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/ci.yml)
+[![Windows package](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/windows-package.yml/badge.svg)](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/windows-package.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-## Product direction
+Meeting Transcriber captures both your microphone and the sound played by meeting
+applications. It works at the Windows audio level, so it does not need to join the
+call as a bot and is not tied to Zoom, Microsoft Teams, Google Meet, or another
+provider.
 
-- Local-first recording and transcription
-- Separate microphone and system-audio capture
-- Recoverable sessions that survive an interrupted processing job
-- Speaker labels that the user can review and rename
-- Plain TXT as the primary human-readable export
-- JSON as the canonical machine-readable record
-- Explicit recording/consent reminders and clear privacy controls
+> **Windows preview:** version 0.1.3 is ready for hands-on testing, but it is not yet
+> a fully qualified production release. Review the [known limitations](#known-limitations)
+> before relying on it for an important meeting.
 
-The initial release will not depend on Zoom, Teams, Google Meet, or another
-meeting provider. It will capture audio at the operating-system level, so it can
-work with any meeting application that plays audio through the selected Windows
-output device.
+## Download for Windows
 
-## Planning documents
+### [Download the Meeting Transcriber 0.1.3 installer](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3/Meeting-Transcriber-0.1.3-Setup.exe)
 
-- [Product plan](docs/PRODUCT_PLAN.md)
-- [Technical architecture](docs/ARCHITECTURE.md)
-- [Delivery roadmap](docs/ROADMAP.md)
-- [Development workflow](docs/DEVELOPMENT_WORKFLOW.md)
-- [Windows MVP release evidence](docs/RELEASE_EVIDENCE.md)
+You can also download the
+[portable ZIP](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3/Meeting-Transcriber-0.1.3-portable.zip)
+or [verify the SHA-256 checksums](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3/SHA256SUMS.txt).
 
-## Current status
+The installer includes the desktop application, Python runtime, Windows audio
+capture, and offline transcription engine. You do not need to install Python or use
+a terminal.
 
-The desktop workflow connects Windows device discovery and recoverable dual-source
-capture to consent-gated recording and offline transcription. A meeting draft opens
-a device-review screen, recording cannot begin until the acknowledgement is checked,
-and the live screen keeps independent source levels, elapsed active time,
-pause/resume, and stop controls visible. Consent version, capture scope, session
-state, WAV chunks, capture timing, processing jobs, and transcript runs are persisted
-locally. Windows streams use callback capture so loopback packets continue arriving
-when meeting audio starts after an initial silent period.
+## Install in four steps
 
-The setup screen can run a consent-gated five-second source test without saving
-audio. Recording is blocked at critically low disk space and remaining capacity is
-shown throughout capture. The History page identifies abandoned recordings after
-restart, only offers recovery when a capture manifest and finalized WAV chunks
-exist, and can open the exact local meeting folder.
+1. Download `Meeting-Transcriber-0.1.3-Setup.exe` from the link above.
+2. Open the downloaded file and follow the setup wizard. Installation is per-user
+   and does not require administrator access.
+3. Open **Meeting Transcriber** from the Start menu.
+4. Complete the first-run **Diagnostics** page to confirm your meeting folder,
+   microphone, speaker/output device, and offline transcription runtime.
 
-After capture, History can start a resumable local faster-whisper job using fast,
-balanced, or accurate profiles. The user controls the one-time model download;
-the app shows exact byte progress and the cache location, and cached runs require no
-network. Cancellation stops an active model transfer cooperatively and preserves its
-resumable cache as well as the recording and prepared audio. Processing progress
-survives at chunk boundaries, and interrupted jobs become retryable at the next
-startup. The canonical versioned result is `transcript.json`, with prior runs retained
-under `derived/transcripts/`. If the standard speech detector rejects an otherwise
-valid, quiet chunk, the engine retries it once with a more sensitive voice threshold
-while keeping Whisper's own no-speech checks enabled.
+The preview installer is not yet Authenticode-signed, so Windows may show an
+**Unknown publisher** warning. Only continue when the file came from this repository's
+official release and, when in doubt, verify it against `SHA256SUMS.txt`.
 
-Each successful transcription creates an editable TXT file named from the meeting
-title and local recording time, for example `Weekly sync - 2026-08-14 093000.txt`.
-It contains meeting metadata, participant/source labels, timestamps, and the complete
-conversation. The completion page and History can open the saved file directly.
-Prior rendered runs are retained under `derived/meeting-notes/`.
+Upgrading or uninstalling the application does not delete your meetings, transcripts,
+or downloaded speech models.
 
-On the first desktop launch, the app opens a local readiness walkthrough. It checks
-free meeting storage, enumerates microphone and system-loopback devices, reports the
-offline transcription runtime and cached models, and inspects optional diarization.
-These checks do not record audio or download anything. Navigation shortcuts are
-`Alt+1` (Home), `Alt+2` (History), `Alt+3` (Diagnostics), and `Ctrl+N` (new meeting).
-The meeting folder can be changed from Diagnostics; the selection survives restart,
-and existing meetings remain in their previous folder rather than being moved or
-deleted.
+## What it does
 
-History can also open an in-app transcript review screen. Speaker/source labels,
-segment speaker assignments, and important segment text can be corrected one change
-at a time; each change updates the TXT notes and creates a retained review
-revision without altering the original model transcript. Speaker reassignment stays
-within the segment's captured audio source. The segment list explicitly labels
-overlapping speech and confidence below 70%. The same screen edits the reviewed
-summary, decisions, and checklist-style action items. When a meeting is transcribed
-again, stable speaker names and structured notes carry forward but run-specific
-segment corrections do not.
+- Records your microphone and Windows meeting/system audio separately.
+- Works with any meeting application that plays through the selected output device.
+- Supports start, pause, resume, stop, audio-level testing, and interrupted-session
+  recovery.
+- Transcribes recordings on your computer with faster-whisper.
+- Offers fast, balanced, and best-accuracy transcription profiles.
+- Retries unusually quiet speech with a more sensitive detection pass.
+- Creates timestamped, plain-text meeting notes that open in Notepad and other
+  ordinary text editors.
+- Lets you correct transcript text, speaker assignments, speaker names, summaries,
+  decisions, and action items.
+- Can optionally separate remote voices when the pyannote runtime and gated model
+  are available.
 
-Remote-speaker separation is now available as an optional second local stage. When
-enabled, the app assembles the system-audio chunks on the original meeting timeline,
-runs the pinned pyannote `speaker-diarization-community-1` pipeline, assigns words to
-anonymous `Remote Speaker 1`, `Remote Speaker 2`, ... clusters, and preserves
-microphone speech as `You`. The setup screen accepts automatic or bounded speaker
-counts and shows a separate progress state for this slower stage.
+## Record and transcribe a meeting
 
-The Community-1 model is gated. The first download requires accepting its
-[Hugging Face access conditions](https://huggingface.co/pyannote/speaker-diarization-community-1),
-explicitly allowing the download in the app, and entering a temporary read token.
-The token is used for that run and immediately cleared; it is never saved in a job,
-transcript, or settings file. Once the pinned model is cached, diarization loads it
-from disk. Audio is not uploaded. If the optional runtime or model is
-unavailable, transcription still completes with the original `Remote speakers`
-label and a visible warning.
+1. Tell everyone that the meeting will be recorded and obtain any consent required
+   where you live and work.
+2. Select **New meeting**, give the meeting a clear name, and choose the microphone
+   and meeting/system-audio devices.
+3. Select the consent acknowledgement and use **Test sources**. Confirm that both
+   level meters react before recording.
+4. Start the recording. Pause or resume when needed, then stop when the meeting ends.
+5. Open **History**, select the meeting, and choose offline transcription.
+6. Select a language and accuracy profile. The first run for a profile requires you
+   to allow its speech-model download; later runs use the local cache.
+7. When processing finishes, choose **Open saved TXT** to open the readable meeting
+   file directly.
 
-Automated checks exercise forced process termination, a simulated 60-minute
-dual-source journal, persisted transcription recovery, and deterministic accuracy
-metrics. A real 60-minute hardware soak and representative accuracy samples are
-still required before a release. Baseline TXT export, durable transcript
-correction and speaker reassignment, review cues, and optional remote voice
-diarization are implemented. Editable structured notes are also complete; release
-qualification on target Windows hardware remains the active product milestone.
+The consent acknowledgement records your confirmation inside the meeting session.
+It does not independently verify participant consent or guarantee compliance with
+recording laws or workplace policies.
 
-## Run the development application
+## Files and privacy
 
-Install [uv](https://docs.astral.sh/uv/), then from the repository root run:
+Audio, transcripts, corrections, and TXT notes stay on your computer. The application
+has no account, cloud sync, or telemetry. A network connection is needed only when
+you explicitly approve a speech-model download.
+
+By default, meetings are stored in:
+
+```text
+Documents\Meeting Transcriber\Meetings\Meeting name - YYYY-MM-DD HHMMSS\
+```
+
+Each folder can contain:
+
+- `audio\` — recoverable microphone and system-audio WAV chunks
+- `Meeting name - YYYY-MM-DD HHMMSS.txt` — the human-readable result
+- `transcript.json` — the canonical structured transcript
+- `session.json` and `capture.json` — session and recording metadata
+- `derived\` — retained processing, review, and export revisions
+
+You can change the meetings folder from **Diagnostics**. History provides buttons
+that open the exact meeting folder and the saved TXT file.
+
+## System requirements
+
+- Windows 10 version 1809 or newer, or Windows 11
+- A 64-bit-compatible Windows computer
+- A microphone and a Windows playback/output device
+- Enough free disk space for WAV recordings and the selected speech model
+- Internet access for the first approved download of each speech model
+
+Transcription runs on the CPU when no supported GPU runtime is available. Larger
+accuracy profiles require more storage, memory, and processing time.
+
+## Troubleshooting
+
+**The application opens but I cannot record**
+
+Open **Diagnostics**, refresh the audio devices, and confirm that both a microphone
+and a Windows loopback/output device are available. On the recording page, select the
+devices again and run the five-second source test.
+
+**Remote participants are missing from the recording**
+
+Select the same Windows output device that the meeting application uses. Play meeting
+audio and confirm that the meeting/system-audio level meter moves before recording.
+
+**Transcription says that no dialogue was detected**
+
+Open the meeting folder and confirm that the WAV files contain audible speech. Retry
+with the correct language selected. The application automatically makes one more
+sensitive pass for valid but quiet recordings.
+
+**A speech model could not be downloaded**
+
+Confirm that the download checkbox is selected, check the internet connection and
+available disk space, then retry. Partial model downloads are retained so a retry can
+continue rather than discarding the recording.
+
+**Where is my TXT file?**
+
+Open **History**, select the completed meeting, and choose **Open saved TXT** or
+**Open folder**.
+
+## Known limitations
+
+- This preview supports Windows only.
+- The installer is not yet Authenticode-signed.
+- Transcription is not perfect. Review important names, numbers, decisions, and
+  action items against the recording.
+- The application cannot infer a person's real name from their voice. Remote voices
+  begin with generic speaker labels that you can rename.
+- Overlapping speech and noisy or very quiet audio can reduce accuracy.
+- Optional individual remote-speaker separation requires an additional pyannote
+  runtime, acceptance of the model's Hugging Face terms, and a one-time model
+  download. Normal transcription still works without it.
+- Clean-machine Windows 10/11, long-duration hardware, accessibility, and broader
+  language/accuracy qualification remain open release gates.
+
+See the [Windows MVP release evidence](docs/RELEASE_EVIDENCE.md) for the exact tested
+scope and remaining qualification work.
+
+## For developers
+
+Python 3.12 and 3.13 are supported. Install
+[uv](https://docs.astral.sh/uv/), then run:
 
 ```powershell
 uv sync --extra dev --extra transcription --extra diarization
 uv run meeting-transcriber
 ```
 
-## Build the Windows desktop application
-
-On Windows, the locked release build creates a portable application that includes
-Python, Qt, WASAPI capture, and the offline faster-whisper runtime:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
-```
-
-The script performs a frozen-runtime smoke test and writes
-`dist\Meeting Transcriber\MeetingTranscriber.exe`. It does not bundle speech-model
-weights; the app downloads the selected model only after explicit approval. The
-optional pyannote diarization runtime is not included in the standard installer, so
-remote speech still transcribes with the safe combined `Remote speakers` label when
-that runtime is unavailable.
-
-With Inno Setup 6 installed, create the per-user installer, portable ZIP, and
-checksums with:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.3
-```
-
-The installer never deletes meeting data or model caches during uninstall. See
-[`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for signing and clean-machine
-release evidence.
-
-Open **Diagnostics** and select **Refresh speaker runtime** to check the pyannote
-runtime, pinned model cache, PyTorch CPU/CUDA capability, and model folder. The app
-preloads its normalized PCM audio in memory, so diarization does not depend on an
-external FFmpeg installation. If remote-speaker separation is not needed, omit
-`--extra diarization`; the rest of the app remains usable.
-
-Python 3.12 or 3.13 is supported. The final Windows release will be distributed
-as an installer and will not require the user to install Python or run a terminal.
-
-## Run the checks
-
-From PowerShell:
+Run formatting, linting, strict type checks, and all tests with:
 
 ```powershell
 .\scripts\check.cmd
 ```
 
-The same formatting, linting, type, and test checks run on Python 3.12 and 3.13
-in GitHub Actions.
-
-## Inspect Windows audio devices
-
-This read-only command lists the microphones and WASAPI loopback inputs available
-to the capture backend. It does not open a stream or record audio.
+Build the frozen Windows application and installer with:
 
 ```powershell
-uv run meeting-transcriber-audio-devices
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.3
 ```
 
-## Audit a completed capture
+More project documentation:
 
-This read-only command validates WAV headers, chunk sequence and continuity, and
-the 250 ms dual-source alignment target. For an uninterrupted 60-minute hardware
-soak, run:
+- [Product plan](docs/PRODUCT_PLAN.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Development workflow](docs/DEVELOPMENT_WORKFLOW.md)
+- [Accuracy evaluation](docs/ACCURACY_EVALUATION.md)
+- [Release checklist](docs/RELEASE_CHECKLIST.md)
 
-```powershell
-uv run meeting-transcriber-capture-audit "C:\path\to\meeting-session" `
-  --min-duration-minutes 60 --max-drift-ms 250 --max-gap-ms 0
-```
+## License
 
-Omit `--max-gap-ms` for a meeting that was intentionally paused. Add `--json` for
-machine-readable output. The audit never opens an audio device or modifies the
-meeting.
-
-## Measure offline transcription accuracy
-
-Compare `transcript.json` with a short human-reviewed reference to calculate word
-error rate, key-term recall, source attribution, permutation-invariant speaker
-attribution, timing error, and silence hallucinations:
-
-```powershell
-uv run meeting-transcriber-evaluate transcript.json reference.json
-```
-
-See [Offline transcription accuracy](docs/ACCURACY_EVALUATION.md) for the reference
-format, profile guidance, and optional pass/fail thresholds.
-
-## Important limitation
-
-Speaker diarization can distinguish voices, but it cannot reliably infer a
-person's real name from audio alone. The application will initially label voices
-as `You`, `Speaker 1`, `Speaker 2`, and so on, then let the user rename them.
+Meeting Transcriber is free software licensed under the
+[GNU General Public License v3.0](LICENSE).
