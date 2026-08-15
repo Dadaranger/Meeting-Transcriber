@@ -100,11 +100,16 @@ QCheckBox::indicator:hover {
     border-color: #5eead4;
 }
 QCheckBox::indicator:checked {
-    border: 5px solid #5eead4;
+    background-color: #5eead4;
+    border: 2px solid #5eead4;
 }
 QCheckBox::indicator:disabled {
     background-color: #131e31;
     border-color: #30415f;
+}
+QCheckBox::indicator:checked:disabled {
+    background-color: #2d6f70;
+    border-color: #2d6f70;
 }
 QFrame#sidebar {
     background-color: #101827;

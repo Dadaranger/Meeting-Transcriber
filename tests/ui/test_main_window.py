@@ -393,6 +393,9 @@ def test_global_style_keeps_label_backgrounds_transparent() -> None:
     assert "QLabel {\n    background-color: transparent;\n}" in APP_STYLE
     assert "QCheckBox {\n    background-color: transparent;\n}" in APP_STYLE
     assert "QCheckBox::indicator:checked" in APP_STYLE
+    checked_style = APP_STYLE.split("QCheckBox::indicator:checked {", 1)[1].split("}", 1)[0]
+    assert "background-color: #5eead4;" in checked_style
+    assert "border: 2px solid #5eead4;" in checked_style
 
 
 def test_home_and_history_content_do_not_clip_at_minimum_window_size(
