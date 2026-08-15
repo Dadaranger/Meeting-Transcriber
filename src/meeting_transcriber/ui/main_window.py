@@ -599,9 +599,7 @@ class MainWindow(QMainWindow):
         migrated_meeting_directories: tuple[tuple[Path, Path], ...] = ()
         meeting_directory_migration_error: OSError | None = None
         try:
-            migrated_meeting_directories = (
-                self.session_service.store.migrate_legacy_directories()
-            )
+            migrated_meeting_directories = self.session_service.store.migrate_legacy_directories()
         except OSError as error:
             meeting_directory_migration_error = error
         self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()

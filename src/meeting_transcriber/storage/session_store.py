@@ -240,9 +240,7 @@ class SessionStore:
         if not self.root.is_dir():
             return []
         sessions = [
-            self._load_path(path)
-            for path in self.root.glob("*/session.json")
-            if path.is_file()
+            self._load_path(path) for path in self.root.glob("*/session.json") if path.is_file()
         ]
         return sorted(sessions, key=lambda session: session.updated_at, reverse=True)
 

@@ -38,13 +38,13 @@ from meeting_transcriber.storage.transcript_store import TranscriptStore
 
 
 class FakePreparer:
-    def __init__(self, session_id: str, tmp_path: Path):
+    def __init__(self, session_id: str, session_directory: Path):
         self.session_id = session_id
-        self.tmp_path = tmp_path
+        self.session_directory = session_directory
         self.run_ids: list[str] = []
 
     def prepare(self, session_directory: Path, run_id: str) -> PreparedAudioPlan:
-        assert session_directory == self.tmp_path / self.session_id
+        assert session_directory == self.session_directory
         self.run_ids.append(run_id)
         chunks = (
             PreparedAudioChunk(
@@ -211,7 +211,7 @@ def _service(
     sessions = MeetingSessionService(SessionStore(tmp_path))
     session_id = _recorded_session(sessions)
     transcripts = TranscriptStore(tmp_path)
-    preparer = FakePreparer(session_id, tmp_path)
+    preparer = FakePreparer(session_id, sessions.session_directory(session_id))
     factory = FakeEngineFactory(engines)
     service = MeetingTranscriptionService(
         sessions,
@@ -447,7 +447,7 @@ def test_notes_failure_retry_reuses_completed_transcript_without_model_rerun(
     sessions = MeetingSessionService(SessionStore(tmp_path))
     session_id = _recorded_session(sessions)
     transcripts = TranscriptStore(tmp_path)
-    preparer = FakePreparer(session_id, tmp_path)
+    preparer = FakePreparer(session_id, sessions.session_directory(session_id))
     factory = FakeEngineFactory([FakeEngine()])
     notes = FailOnceNotesStore(MeetingNotesStore(tmp_path))
     service = MeetingTranscriptionService(

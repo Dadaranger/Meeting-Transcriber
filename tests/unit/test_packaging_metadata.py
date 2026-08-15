@@ -17,6 +17,10 @@ def test_release_versions_stay_synchronized() -> None:
     installer = (REPOSITORY_ROOT / "packaging/meeting-transcriber.iss").read_text(encoding="utf-8")
 
     assert project["project"]["version"] == __version__
+    version_parts = [int(part) for part in __version__.split(".")]
+    version_tuple = (*version_parts, 0)
+    assert f"filevers={version_tuple}" in version_resource
+    assert f"prodvers={version_tuple}" in version_resource
     assert f"StringStruct('ProductVersion', '{__version__}')" in version_resource
     assert f'#define AppVersion "{__version__}"' in installer
     assert 'Name: "{app}\\_internal\\hf_xet"' in installer

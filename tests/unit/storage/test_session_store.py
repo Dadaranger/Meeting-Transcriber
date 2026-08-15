@@ -129,7 +129,7 @@ def test_list_sessions_returns_most_recent_first(tmp_path: Path) -> None:
 def test_session_folder_name_is_windows_safe_and_readable(tmp_path: Path) -> None:
     store = SessionStore(tmp_path)
     session = MeetingSession.new(
-        '  Project: Atlas / planning?  ',
+        "  Project: Atlas / planning?  ",
         session_id=SESSION_ID,
         now=START,
     )
@@ -172,6 +172,4 @@ def test_legacy_folder_migration_uses_a_suffix_for_name_collisions(tmp_path: Pat
 
     migrations = store.migrate_legacy_directories()
 
-    assert migrations[0][1].name == (
-        f"Design review - {START.astimezone():%Y-%m-%d %H%M%S} (2)"
-    )
+    assert migrations[0][1].name == (f"Design review - {START.astimezone():%Y-%m-%d %H%M%S} (2)")
