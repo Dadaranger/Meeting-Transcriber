@@ -1,0 +1,15 @@
+Meeting Transcriber records microphone and system audio locally, then transcribes it on this PC.
+
+Disk planning
+- The application bundle contains the offline transcription runtime.
+- Speech models download only after you approve the download in the application.
+- Model sizes vary from roughly 500 MB to several GB. Keep at least 5 GB free for a model, temporary processing, and meeting data.
+- One hour of uncompressed dual-source audio can use about 1 GB before derived files.
+
+Privacy and uninstall
+- Meeting recordings, transcripts, and notes are stored under your Documents folder.
+- Downloaded models are stored in your per-user Local App Data folder.
+- Uninstall removes the application only. It deliberately leaves recordings, transcripts, notes, reviews, and downloaded models in place.
+- Delete retained meeting data or models manually only after you have confirmed you no longer need them.
+
+Recording laws vary. Tell participants and obtain any consent required where you are.

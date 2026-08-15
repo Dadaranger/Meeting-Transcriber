@@ -1,0 +1,139 @@
+name: Windows package
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-package.yml"
+      - "packaging/**"
+      - "scripts/build_windows.ps1"
+      - "scripts/build_installer.ps1"
+      - "scripts/generate_icon.py"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+  push:
+    branches:
+      - "codex/windows-packaging"
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  package:
+    name: Build Windows installer
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      WINDOWS_SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
+      WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install locked packaging dependencies
+        run: uv sync --frozen --extra packaging --extra transcription
+
+      - name: Build and smoke-test portable application
+        shell: pwsh
+        run: ./scripts/build_windows.ps1 -SkipSync
+
+      - name: Sign application when certificate secrets are configured
+        if: env.WINDOWS_SIGNING_CERTIFICATE != '' && env.WINDOWS_SIGNING_PASSWORD != ''
+        shell: pwsh
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "meeting-transcriber-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes(
+              $certificatePath,
+              [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE)
+            )
+            $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+              -Recurse -Filter signtool.exe |
+              Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if (-not $signTool) { throw "signtool.exe was not found." }
+            & $signTool.FullName sign /fd SHA256 /td SHA256 `
+              /tr http://timestamp.digicert.com `
+              /f $certificatePath /p $env:WINDOWS_SIGNING_PASSWORD `
+              "dist\Meeting Transcriber\MeetingTranscriber.exe"
+            if ($LASTEXITCODE -ne 0) { throw "Application signing failed." }
+          }
+          finally {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Compile installer and checksums
+        shell: pwsh
+        run: |
+          $version = (uv run python -c "from meeting_transcriber import __version__; print(__version__)").Trim()
+          ./scripts/build_installer.ps1 -AppVersion $version
+
+      - name: Sign installer when certificate secrets are configured
+        if: env.WINDOWS_SIGNING_CERTIFICATE != '' && env.WINDOWS_SIGNING_PASSWORD != ''
+        shell: pwsh
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "meeting-transcriber-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes(
+              $certificatePath,
+              [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE)
+            )
+            $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+              -Recurse -Filter signtool.exe |
+              Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            $installer = Get-ChildItem "dist\installer\*-Setup.exe" | Select-Object -First 1
+            & $signTool.FullName sign /fd SHA256 /td SHA256 `
+              /tr http://timestamp.digicert.com `
+              /f $certificatePath /p $env:WINDOWS_SIGNING_PASSWORD `
+              $installer.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Installer signing failed." }
+          }
+          finally {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Refresh checksums after optional signing
+        shell: pwsh
+        run: |
+          $artifacts = Get-ChildItem "dist\installer" -File |
+            Where-Object { $_.Extension -in ".exe", ".zip" }
+          $lines = foreach ($artifact in $artifacts | Sort-Object Name) {
+            $hash = (Get-FileHash $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($artifact.Name)"
+          }
+          $lines | Set-Content "dist\installer\SHA256SUMS.txt" -Encoding ascii
+
+      - name: Attest release artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/installer/*
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: meeting-transcriber-windows-${{ github.run_id }}
+          path: dist/installer/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish tagged GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/installer/* --generate-notes --verify-tag

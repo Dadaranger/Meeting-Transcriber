@@ -1,0 +1,187 @@
+from PySide6.QtCore import Qt
+from pytestqt.qtbot import QtBot
+
+from meeting_transcriber.app.storage_health import (
+    BYTES_PER_GIBIBYTE,
+    DiskSpaceStatus,
+    StorageHealth,
+)
+from meeting_transcriber.capture.devices import (
+    AudioDevice,
+    AudioDeviceCatalog,
+    AudioDeviceKind,
+)
+from meeting_transcriber.domain.session import CONSENT_STATEMENT, MeetingSession, SessionState
+from meeting_transcriber.ui.recording_page import RecordingPage
+
+
+def _device(
+    kind: AudioDeviceKind,
+    device_id: str,
+    name: str,
+    *,
+    is_default: bool = False,
+) -> AudioDevice:
+    return AudioDevice(
+        device_id=device_id,
+        backend_index=1,
+        name=name,
+        kind=kind,
+        host_api="Test",
+        max_input_channels=1 if kind is AudioDeviceKind.MICROPHONE else 2,
+        default_sample_rate=48_000,
+        is_default=is_default,
+    )
+
+
+def _catalog() -> AudioDeviceCatalog:
+    return AudioDeviceCatalog(
+        microphones=(
+            _device(AudioDeviceKind.MICROPHONE, "mic-1", "Desk microphone"),
+            _device(
+                AudioDeviceKind.MICROPHONE,
+                "mic-2",
+                "Headset microphone",
+                is_default=True,
+            ),
+        ),
+        loopbacks=(
+            _device(
+                AudioDeviceKind.SYSTEM_LOOPBACK,
+                "loopback-1",
+                "Speakers [Loopback]",
+                is_default=True,
+            ),
+        ),
+    )
+
+
+def test_consent_is_a_hard_gate_for_begin_recording(qtbot: QtBot) -> None:
+    page = RecordingPage()
+    qtbot.addWidget(page)
+    session = MeetingSession.new("Weekly sync")
+
+    page.load_session(session, _catalog())
+
+    assert not page.begin_button.isEnabled()
+    assert not page.preflight_button.isEnabled()
+    assert " ".join(page.consent_checkbox.text().split()) == CONSENT_STATEMENT
+    assert page.microphone_combo.currentData() == "mic-2"
+    assert page.loopback_combo.currentData() == "loopback-1"
+
+    qtbot.mouseClick(page.consent_checkbox, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert page.begin_button.isEnabled()
+    assert page.preflight_button.isEnabled()
+    with qtbot.waitSignal(page.preflight_requested) as preflight_signal:
+        qtbot.mouseClick(page.preflight_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    assert preflight_signal.args == [session.session_id, "mic-2", "loopback-1"]
+
+    page.show_preflight(True)
+    page.update_levels(0.35, 0.7)
+    assert not page.begin_button.isEnabled()
+    assert page.preflight_microphone_level.value() == 35
+    assert page.preflight_system_level.value() == 70
+    with qtbot.waitSignal(page.preflight_stop_requested):
+        qtbot.mouseClick(page.preflight_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    page.show_preflight(False)
+    assert page.begin_button.isEnabled()
+
+    with qtbot.waitSignal(page.begin_requested) as signal:
+        qtbot.mouseClick(page.begin_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert signal.args == [session.session_id, "mic-2", "loopback-1"]
+
+
+def test_missing_source_keeps_begin_recording_disabled(qtbot: QtBot) -> None:
+    page = RecordingPage()
+    qtbot.addWidget(page)
+    session = MeetingSession.new("Weekly sync")
+    catalog = AudioDeviceCatalog(
+        microphones=(_device(AudioDeviceKind.MICROPHONE, "mic-1", "Desk microphone"),),
+        loopbacks=(),
+    )
+
+    page.load_session(session, catalog)
+    qtbot.mouseClick(page.consent_checkbox, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    assert not page.begin_button.isEnabled()
+    assert "system-audio loopback" in page.device_status_label.text()
+
+
+def test_recording_setup_scrolls_instead_of_compressing_controls(qtbot: QtBot) -> None:
+    page = RecordingPage()
+    qtbot.addWidget(page)
+    page.resize(710, 600)
+    page.load_session(MeetingSession.new("Weekly planning review"), _catalog())
+    page.show()
+    qtbot.wait(50)
+
+    vertical_scroll_bar = page.scroll_area.verticalScrollBar()
+    assert vertical_scroll_bar.maximum() > 0
+    assert vertical_scroll_bar.value() == vertical_scroll_bar.minimum()
+    assert page.scroll_area.horizontalScrollBar().maximum() == 0
+    assert page.consent_checkbox.height() >= page.consent_checkbox.sizeHint().height()
+    assert page.begin_button.height() >= page.begin_button.sizeHint().height()
+
+
+def test_device_error_clears_previous_choices(qtbot: QtBot) -> None:
+    page = RecordingPage()
+    qtbot.addWidget(page)
+    page.load_session(MeetingSession.new("Weekly sync"), _catalog())
+
+    page.show_device_error("WASAPI unavailable")
+
+    assert page.microphone_combo.count() == 0
+    assert page.loopback_combo.count() == 0
+    assert not page.begin_button.isEnabled()
+    assert "WASAPI unavailable" in page.device_status_label.text()
+
+
+def test_recording_state_has_persistent_timer_sources_and_stop_control(qtbot: QtBot) -> None:
+    page = RecordingPage()
+    qtbot.addWidget(page)
+    draft = MeetingSession.new("Weekly sync")
+    recording = draft.confirm_consent().transition(SessionState.RECORDING)
+    page.load_session(draft, _catalog())
+
+    page.show_recording(recording)
+    page.update_storage(
+        DiskSpaceStatus(
+            total_bytes=100 * BYTES_PER_GIBIBYTE,
+            used_bytes=99 * BYTES_PER_GIBIBYTE,
+            free_bytes=BYTES_PER_GIBIBYTE,
+            health=StorageHealth.WARNING,
+        )
+    )
+
+    assert page.setup_card.isHidden()
+    assert not page.recording_card.isHidden()
+    assert page.recording_pill.text() == "● RECORDING"
+    assert page.elapsed_label.text() == "00:00:00"
+    assert "Headset microphone" in page.live_sources_label.text()
+    assert "Speakers [Loopback]" in page.live_sources_label.text()
+    assert "Low storage" in page.live_storage_label.text()
+
+    page.update_levels(0.42, 0.91)
+    assert page.microphone_level.value() == 42
+    assert page.system_audio_level.value() == 91
+
+    with qtbot.waitSignal(page.pause_requested):
+        qtbot.mouseClick(page.pause_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    page.show_paused()
+    assert page.recording_pill.text() == "Ⅱ PAUSED"
+    assert page.pause_button.text() == "Resume recording"
+    assert page.microphone_level.value() == 0
+    assert page.system_audio_level.value() == 0
+
+    with qtbot.waitSignal(page.resume_requested):
+        qtbot.mouseClick(page.pause_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+    page.show_resumed()
+    assert page.recording_pill.text() == "● RECORDING"
+
+    with qtbot.waitSignal(page.stop_requested):
+        qtbot.mouseClick(page.stop_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+    page.recording_finished()
+    assert page.recording_card.isHidden()
