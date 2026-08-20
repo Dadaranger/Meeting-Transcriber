@@ -32,6 +32,8 @@ Intel macOS runners. Each runner must:
 7. publish checksums and build-provenance attestations.
 
 A version tag is not published until the Windows build and both Mac builds succeed.
+The Mac dependency graph pins ONNX Runtime 1.21.1 because it is the final release
+providing a macOS 13 universal wheel for both Apple Silicon and Intel.
 
 ## Preview limitations and manual release gates
 

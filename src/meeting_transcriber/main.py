@@ -50,7 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     mac_system_audio_helper_path,
                 )
 
-                if not mac_system_audio_helper_path().is_file():
+                if getattr(sys, "frozen", False) and not mac_system_audio_helper_path().is_file():
                     raise RuntimeError("The packaged macOS system-audio helper is missing")
         app = create_application(["meeting-transcriber", "-platform", "offscreen"])
         app.processEvents()

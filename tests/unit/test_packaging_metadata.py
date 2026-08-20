@@ -79,6 +79,15 @@ def test_ci_installs_the_optional_transcription_runtime_it_tests() -> None:
     assert "uv sync --frozen --extra dev --extra transcription" in install_step
 
 
+def test_macos_transcription_uses_the_last_macos_13_universal_onnxruntime() -> None:
+    project = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert (
+        "onnxruntime==1.21.1; sys_platform == 'darwin'"
+        in project["project"]["optional-dependencies"]["transcription"]
+    )
+
+
 def test_windows_bundle_runs_the_real_entry_point_and_requires_smoke_evidence() -> None:
     specification = (REPOSITORY_ROOT / "packaging/meeting-transcriber.spec").read_text(
         encoding="utf-8"
