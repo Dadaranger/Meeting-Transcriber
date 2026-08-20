@@ -59,6 +59,18 @@ def test_preview_version_tags_publish_as_prereleases() -> None:
     assert "release_arguments+=(--prerelease)" in publish_step
 
 
+def test_tagged_release_checks_out_repository_before_publishing() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/windows-package.yml").read_text(
+        encoding="utf-8"
+    )
+    release_job = workflow.split("  release:", maxsplit=1)[1]
+    checkout_step = release_job.index("- name: Check out repository")
+    publish_step = release_job.index("- name: Publish tagged GitHub release")
+
+    assert "uses: actions/checkout@v7" in release_job
+    assert checkout_step < publish_step
+
+
 def test_tagged_release_waits_for_windows_and_both_mac_architectures() -> None:
     workflow = (REPOSITORY_ROOT / ".github/workflows/windows-package.yml").read_text(
         encoding="utf-8"
