@@ -1,13 +1,16 @@
-name: Windows package
+name: Desktop packages
 
 on:
   pull_request:
     paths:
       - ".github/workflows/windows-package.yml"
+      - "native/macos/**"
       - "packaging/**"
+      - "scripts/build_macos.sh"
       - "scripts/build_windows.ps1"
       - "scripts/build_installer.ps1"
       - "scripts/generate_icon.py"
+      - "scripts/generate_macos_icon.py"
       - "src/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -15,6 +18,7 @@ on:
   push:
     branches:
       - "codex/windows-packaging"
+      - "codex/macos-support"
     tags:
       - "v*"
 
@@ -24,7 +28,7 @@ permissions:
   attestations: write
 
 jobs:
-  package:
+  windows-package:
     name: Build Windows installer
     runs-on: windows-latest
     env:
@@ -131,17 +135,99 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  macos-package:
+    name: Build macOS ${{ matrix.architecture }} download
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    env:
+      QT_QPA_PLATFORM: offscreen
+      MEETING_TRANSCRIBER_ARCH_LABEL: ${{ matrix.architecture }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install locked macOS packaging dependencies
+        run: uv sync --frozen --extra dev --extra packaging --extra transcription
+
+      - name: Run macOS regression tests
+        run: uv run --frozen pytest -q
+
+      - name: Compile native capture helper and package application
+        run: bash scripts/build_macos.sh --skip-sync
+
+      - name: Attest macOS release artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/macos/*
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: meeting-transcriber-macos-${{ matrix.architecture }}-${{ github.run_id }}
+          path: dist/macos/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish tagged desktop release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - windows-package
+      - macos-package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: meeting-transcriber-*-${{ github.run_id }}
+          path: release-input
+
+      - name: Assemble release files and unified checksums
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find release-input -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' \) \
+            -exec cp '{}' release-assets/ \;
+          if [[ "$(find release-assets -type f | wc -l)" -ne 6 ]]; then
+            echo "Expected two Windows and four macOS release files." >&2
+            find release-input -type f -print >&2
+            exit 1
+          fi
+          (
+            cd release-assets
+            sha256sum -- * > SHA256SUMS.txt
+          )
+
+      - name: Attest combined release files
+        uses: actions/attest@v4
+        with:
+          subject-path: release-assets/*
+
       - name: Publish tagged GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $releaseArguments = @(
-            "release", "create", "${{ github.ref_name }}", "dist/installer/*",
-            "--generate-notes", "--verify-tag"
+          release_arguments=(
+            release create "${{ github.ref_name }}" release-assets/*
+            --generate-notes --verify-tag
           )
-          if ("${{ github.ref_name }}" -match "-") {
-            $releaseArguments += "--prerelease"
-          }
-          & gh @releaseArguments
+          if [[ "${{ github.ref_name }}" == *-* ]]; then
+            release_arguments+=(--prerelease)
+          fi
+          gh "${release_arguments[@]}"

@@ -1,36 +1,64 @@
 # Meeting Transcriber
 
-Record online meetings from your Windows desktop, transcribe them locally, and open
+Record online meetings from your Windows PC or Mac, transcribe them locally, and open
 the result as a readable TXT file.
 
-[![Windows CI](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/ci.yml/badge.svg)](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/ci.yml)
-[![Windows package](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/windows-package.yml/badge.svg)](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/windows-package.yml)
+[![CI](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/ci.yml/badge.svg)](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/ci.yml)
+[![Desktop packages](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/windows-package.yml/badge.svg)](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/windows-package.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 Meeting Transcriber captures both your microphone and the sound played by meeting
-applications. It works at the Windows audio level, so it does not need to join the
-call as a bot and is not tied to Zoom, Microsoft Teams, Google Meet, or another
-provider.
+applications. It works through native desktop audio capture, so it does not need to
+join the call as a bot and is not tied to Zoom, Microsoft Teams, Google Meet, or
+another provider.
 
-> **Windows preview:** version 0.1.3 is ready for hands-on testing, but it is not yet
+> **Desktop preview:** version 0.1.4 is ready for hands-on testing, but it is not yet
 > a fully qualified production release. Review the [known limitations](#known-limitations)
 > before relying on it for an important meeting.
 
-## Download for Windows
+## Download
 
-### [Download the Meeting Transcriber 0.1.3 preview installer](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3-preview.1/Meeting-Transcriber-0.1.3-Setup.exe)
+### macOS 13 or newer
+
+- **Apple Silicon (M1, M2, M3, M4, or newer):**
+  [download the arm64 DMG](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/Meeting-Transcriber-0.1.4-macOS-arm64.dmg)
+- **Intel Mac:**
+  [download the x86_64 DMG](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/Meeting-Transcriber-0.1.4-macOS-x86_64.dmg)
+
+To check your Mac type, open the Apple menu, choose **About This Mac**, and look at
+**Chip** or **Processor**. DMG and ZIP downloads contain the application, Python
+runtime, macOS audio capture, and offline transcription engine.
+
+Install the Mac preview:
+
+1. Open the downloaded DMG and drag **Meeting Transcriber** to **Applications**.
+2. Because the preview is not yet Apple-notarized, Control-click the application,
+   choose **Open**, then confirm **Open**. Only do this for a download from this
+   repository's official release.
+3. Allow **Microphone** access when macOS asks.
+4. Allow **Screen & System Audio Recording** access when macOS asks, then quit and
+   reopen Meeting Transcriber so the new permission takes effect.
+5. Complete **Diagnostics** and run the five-second source test before recording.
+
+Meeting Transcriber captures audio only; it does not save the screen image or video.
+The Screen & System Audio Recording permission is required by Apple's
+ScreenCaptureKit interface to receive meeting/system audio.
+
+### Windows 10 or 11
+
+[Download the Meeting Transcriber 0.1.4 preview installer](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/Meeting-Transcriber-0.1.4-Setup.exe)
 
 You can also download the
-[portable ZIP](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3-preview.1/Meeting-Transcriber-0.1.3-portable.zip)
-or [verify the SHA-256 checksums](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.3-preview.1/SHA256SUMS.txt).
+[portable ZIP](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/Meeting-Transcriber-0.1.4-portable.zip)
+or [verify all release checksums](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/SHA256SUMS.txt).
 
 The installer includes the desktop application, Python runtime, Windows audio
 capture, and offline transcription engine. You do not need to install Python or use
 a terminal.
 
-## Install in four steps
+Install the Windows preview:
 
-1. Download `Meeting-Transcriber-0.1.3-Setup.exe` from the link above.
+1. Download `Meeting-Transcriber-0.1.4-Setup.exe` from the link above.
 2. Open the downloaded file and follow the setup wizard. Installation is per-user
    and does not require administrator access.
 3. Open **Meeting Transcriber** from the Start menu.
@@ -46,7 +74,7 @@ or downloaded speech models.
 
 ## What it does
 
-- Records your microphone and Windows meeting/system audio separately.
+- Records your microphone and native meeting/system audio separately.
 - Works with any meeting application that plays through the selected output device.
 - Supports start, pause, resume, stop, audio-level testing, and interrupted-session
   recovery.
@@ -88,7 +116,8 @@ you explicitly approve a speech-model download.
 By default, meetings are stored in:
 
 ```text
-Documents\Meeting Transcriber\Meetings\Meeting name - YYYY-MM-DD HHMMSS\
+Windows: Documents\Meeting Transcriber\Meetings\Meeting name - YYYY-MM-DD HHMMSS\
+macOS:   ~/Documents/Meeting Transcriber/Meetings/Meeting name - YYYY-MM-DD HHMMSS/
 ```
 
 Each folder can contain:
@@ -104,9 +133,9 @@ that open the exact meeting folder and the saved TXT file.
 
 ## System requirements
 
-- Windows 10 version 1809 or newer, or Windows 11
-- A 64-bit-compatible Windows computer
-- A microphone and a Windows playback/output device
+- Windows 10 version 1809 or newer, Windows 11, or macOS 13 Ventura or newer
+- A 64-bit Windows computer, Apple Silicon Mac, or Intel Mac
+- A microphone and a meeting playback/output device
 - Enough free disk space for WAV recordings and the selected speech model
 - Internet access for the first approved download of each speech model
 
@@ -118,13 +147,15 @@ accuracy profiles require more storage, memory, and processing time.
 **The application opens but I cannot record**
 
 Open **Diagnostics**, refresh the audio devices, and confirm that both a microphone
-and a Windows loopback/output device are available. On the recording page, select the
-devices again and run the five-second source test.
+and a meeting/system-audio source are available. On the recording page, select the
+devices again and run the five-second source test. On macOS, also confirm Microphone
+and Screen & System Audio Recording access in **System Settings > Privacy & Security**.
 
 **Remote participants are missing from the recording**
 
-Select the same Windows output device that the meeting application uses. Play meeting
-audio and confirm that the meeting/system-audio level meter moves before recording.
+On Windows, select the same output device that the meeting application uses. On Mac,
+select **All meeting/system audio**. Play meeting audio and confirm that the system
+audio level meter moves before recording.
 
 **Transcription says that no dialogue was detected**
 
@@ -145,8 +176,10 @@ Open **History**, select the completed meeting, and choose **Open saved TXT** or
 
 ## Known limitations
 
-- This preview supports Windows only.
-- The installer is not yet Authenticode-signed.
+- The Windows installer is not yet Authenticode-signed.
+- The Mac application is ad-hoc signed but not yet Apple Developer ID signed or
+  notarized, so the first launch requires the Control-click **Open** process described
+  above.
 - Transcription is not perfect. Review important names, numbers, decisions, and
   action items against the recording.
 - The application cannot infer a person's real name from their voice. Remote voices
@@ -155,11 +188,12 @@ Open **History**, select the completed meeting, and choose **Open saved TXT** or
 - Optional individual remote-speaker separation requires an additional pyannote
   runtime, acceptance of the model's Hugging Face terms, and a one-time model
   download. Normal transcription still works without it.
-- Clean-machine Windows 10/11, long-duration hardware, accessibility, and broader
-  language/accuracy qualification remain open release gates.
+- Clean-machine Windows and Mac hardware, long-duration capture, accessibility, and
+  broader language/accuracy qualification remain open release gates.
 
-See the [Windows MVP release evidence](docs/RELEASE_EVIDENCE.md) for the exact tested
-scope and remaining qualification work.
+See the [Windows release evidence](docs/RELEASE_EVIDENCE.md) and
+[macOS qualification scope](docs/MACOS_SUPPORT.md) for the exact tested scope and
+remaining release work.
 
 ## For developers
 
@@ -181,13 +215,21 @@ Build the frozen Windows application and installer with:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.3
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.4
+```
+
+On macOS 13 or newer, compile the ScreenCaptureKit helper and build the app, DMG, and
+ZIP with:
+
+```bash
+bash scripts/build_macos.sh
 ```
 
 More project documentation:
 
 - [Product plan](docs/PRODUCT_PLAN.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [macOS support and qualification](docs/MACOS_SUPPORT.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Development workflow](docs/DEVELOPMENT_WORKFLOW.md)
 - [Accuracy evaluation](docs/ACCURACY_EVALUATION.md)

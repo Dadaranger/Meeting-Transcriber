@@ -6,10 +6,9 @@ Use a Python 3.12 application with a PySide6 desktop interface and strict module
 boundaries around platform audio capture, speech processing, storage, and export.
 
 Python keeps the application close to the strongest local speech-processing
-ecosystem. PySide6 provides a native desktop UI and an official deployment path
-for Windows, macOS, and Linux. Windows is the first target; other operating
-systems will be added through capture adapters rather than conditionals spread
-throughout the application.
+ecosystem. PySide6 provides a native desktop UI and a deployment path for Windows
+and macOS. Platform capture is selected through adapters rather than conditionals
+spread throughout the application.
 
 ## High-level design
 
@@ -20,7 +19,7 @@ flowchart LR
     APP --> CAPTURE["Audio capture coordinator"]
     APP --> PIPELINE["Processing pipeline"]
     CAPTURE --> MIC["Microphone adapter"]
-    CAPTURE --> LOOPBACK["Windows WASAPI loopback adapter"]
+    CAPTURE --> LOOPBACK["WASAPI or ScreenCaptureKit system-audio adapter"]
     CAPTURE --> STORE["Session storage"]
     PIPELINE --> TRANSCRIBE["Offline transcription"]
     PIPELINE --> DIARIZE["Optional diarization"]
@@ -36,20 +35,21 @@ flowchart LR
 
 | Concern | Initial choice | Reason |
 | --- | --- | --- |
-| Language | Python 3.12 | Mature audio/ML ecosystem and straightforward Windows development |
+| Language | Python 3.12 | Mature audio/ML ecosystem and native Windows/macOS packages |
 | UI | PySide6 with Qt Widgets | Native desktop controls, accessibility support, and official deployment tooling |
-| Audio capture | PyAudioWPatch behind a Windows WASAPI adapter | Exposes microphones and virtual loopback inputs while keeping the dependency replaceable |
+| Audio capture | Windows WASAPI plus macOS Core Audio/ScreenCaptureKit adapters | Captures separate microphone and meeting-audio tracks behind one replaceable interface |
 | Audio format | Timestamped PCM/WAV chunks during capture | Simple, broadly supported, and recoverable after interruption |
 | Transcription | faster-whisper/CTranslate2 | Local CPU/CUDA inference, timestamps, VAD, and multiple model sizes |
 | Speaker diarization | Optional pyannote pipeline | Established diarization tooling; isolated because model access and compute vary |
 | Canonical data | Versioned JSON documents | Allows deterministic re-export and schema migrations |
 | Human output | Plain TXT | Portable, searchable, editable, and readable without the app |
 | Settings | Versioned local configuration | Transparent migrations and no account requirement |
-| Packaging | `pyside6-deploy` evaluated first | Official PySide6 deployment tool; create a signed Windows installer later |
+| Packaging | Pinned PyInstaller builds plus Inno Setup/DMG wrappers | Produces Python-free platform downloads and repeatable smoke evidence |
 | Tests | pytest plus recorded fixtures | Unit, pipeline, and end-to-end coverage without live meetings in CI |
 
-PyAudioWPatch `0.2.12.8` was selected by the capture spike and is locked for
-Windows. Packaging dependencies remain provisional until the release spike.
+PyAudioWPatch is locked for Windows WASAPI capture. Sounddevice provides macOS
+microphone access, while the bundled Swift helper converts ScreenCaptureKit system
+audio to the same signed 16-bit PCM boundary used by the recorder.
 
 ## Module boundaries
 
@@ -59,7 +59,7 @@ The expected source layout is:
 src/meeting_transcriber/
   app/                 # use cases, state machines, dependency wiring
   domain/              # session, audio, transcript, and export models
-  capture/             # interfaces plus Windows implementation
+  capture/             # interfaces plus Windows and macOS implementations
   processing/          # transcription, diarization, merge, and cleanup
   storage/             # manifests, atomic writes, migrations, model cache
   export/              # Plain-text and canonical JSON renderers
@@ -71,7 +71,7 @@ tests/
   fixtures/
 ```
 
-The domain and application layers must not import PySide6, Windows APIs, or a
+The domain and application layers must not import PySide6, platform APIs, or a
 specific ML provider. This keeps processing testable and allows later CLI/batch
 entry points without duplicating core logic.
 
@@ -126,7 +126,8 @@ seconds. Starting a recording while the test owns the devices is prohibited.
 The capture coordinator opens two independent streams:
 
 - `microphone`: the selected input device, initially attributed to `You`
-- `system`: WASAPI loopback for the selected Windows render endpoint
+- `system`: WASAPI loopback for the selected Windows render endpoint, or 48 kHz
+  stereo system audio from ScreenCaptureKit on macOS
 
 Each stream writes small numbered WAV chunks and records monotonic start/end
 timestamps in the session manifest. Writing chunks limits crash loss and makes it

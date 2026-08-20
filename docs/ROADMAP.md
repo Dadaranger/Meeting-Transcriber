@@ -176,7 +176,7 @@ across later transcript runs.
 
 **Planned increments**
 
-1. Windows packaging spike and reproducible build
+1. Windows and macOS packaging spikes and reproducible builds
 2. Installer, application icon, version metadata, and clean uninstall behavior
 3. First-run hardware/model diagnostics
 4. Accessibility and keyboard navigation review
@@ -185,20 +185,20 @@ across later transcript runs.
 
 **Acceptance criteria**
 
-- A clean Windows machine can install and launch the app without Python.
+- A clean Windows machine or Mac can install and launch the app without Python.
 - The installer explains disk requirements for models and recordings.
 - Uninstalling never deletes meeting data without explicit confirmation.
 - The release passes the 60-minute end-to-end scenario.
 
-**Current implementation status:** a pinned PyInstaller build now produces a
-Python-free Windows application bundle with icon/version resources and a frozen
-Whisper/WASAPI smoke test. An Inno Setup definition installs per user and deliberately
-leaves recordings, transcripts, notes, reviews, and model caches outside uninstall
-scope. GitHub Actions builds the installer and portable archive, writes SHA-256
-checksums, creates provenance attestations, optionally Authenticode-signs with
-repository secrets, and publishes version tags. Clean-machine install/uninstall,
-real hardware capture, gated-model verification, accessibility evidence, code-signing
-identity, and the 60-minute target-hardware scenario remain release gates.
+**Current implementation status:** pinned PyInstaller builds now produce Python-free
+Windows and macOS application bundles. Windows uses WASAPI and a per-user Inno Setup
+installer. macOS uses Core Audio plus a bundled ScreenCaptureKit helper and produces
+separate Apple Silicon and Intel DMGs/ZIPs. GitHub Actions builds every platform,
+writes unified SHA-256 checksums, creates provenance attestations, optionally
+Authenticode-signs Windows, and publishes version tags only after every package job
+passes. Clean-machine install/uninstall, real hardware capture, gated-model
+verification, accessibility evidence, Apple Developer ID signing/notarization, and
+the 60-minute target-hardware scenario remain release gates.
 
 The first-run readiness screen now checks storage, audio enumeration, the offline
 transcription runtime/model cache, and optional diarization without recording or
@@ -213,7 +213,6 @@ and target-hardware evidence remain checklist gates.
 ## Later roadmap
 
 - Real-time partial transcripts
-- macOS ScreenCaptureKit adapter
 - Linux PipeWire/PulseAudio adapter
 - Calendar and meeting-platform metadata integrations
 - Search across meetings
