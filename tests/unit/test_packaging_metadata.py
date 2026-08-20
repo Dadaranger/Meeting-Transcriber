@@ -110,6 +110,7 @@ def test_macos_bundle_includes_native_audio_capture_and_requires_smoke_evidence(
     ).read_text(encoding="utf-8")
 
     assert "MEETING_TRANSCRIBER_MAC_AUDIO_HELPER" in specification
+    assert 'collect_all("sounddevice")' in specification
     assert 'name="Meeting Transcriber.app"' in specification
     assert '"LSMinimumSystemVersion": "13.0"' in specification
     assert "--package-smoke-test=$smoke_marker" in build_script
