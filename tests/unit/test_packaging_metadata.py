@@ -55,8 +55,19 @@ def test_preview_version_tags_publish_as_prereleases() -> None:
     )
     publish_step = workflow.split("- name: Publish tagged GitHub release", maxsplit=1)[1]
 
-    assert 'if ("${{ github.ref_name }}" -match "-")' in publish_step
-    assert '$releaseArguments += "--prerelease"' in publish_step
+    assert 'if [[ "${{ github.ref_name }}" == *-* ]]' in publish_step
+    assert "release_arguments+=(--prerelease)" in publish_step
+
+
+def test_tagged_release_waits_for_windows_and_both_mac_architectures() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/windows-package.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "needs:\n      - windows-package\n      - macos-package" in workflow
+    assert "runner: macos-15\n            architecture: arm64" in workflow
+    assert "runner: macos-15-intel\n            architecture: x86_64" in workflow
+    assert "Expected two Windows and four macOS release files." in workflow
 
 
 def test_ci_installs_the_optional_transcription_runtime_it_tests() -> None:
@@ -78,3 +89,21 @@ def test_windows_bundle_runs_the_real_entry_point_and_requires_smoke_evidence() 
     assert 'meeting_transcriber" / "main.py"' not in specification
     assert "--package-smoke-test={0}" in build_script
     assert "entry point did not produce its smoke marker" in build_script
+
+
+def test_macos_bundle_includes_native_audio_capture_and_requires_smoke_evidence() -> None:
+    specification = (REPOSITORY_ROOT / "packaging/meeting-transcriber-macos.spec").read_text(
+        encoding="utf-8"
+    )
+    build_script = (REPOSITORY_ROOT / "scripts/build_macos.sh").read_text(encoding="utf-8")
+    helper_source = (
+        REPOSITORY_ROOT / "native/macos/MeetingTranscriberSystemAudio.swift"
+    ).read_text(encoding="utf-8")
+
+    assert "MEETING_TRANSCRIBER_MAC_AUDIO_HELPER" in specification
+    assert 'name="Meeting Transcriber.app"' in specification
+    assert '"LSMinimumSystemVersion": "13.0"' in specification
+    assert "--package-smoke-test=$smoke_marker" in build_script
+    assert "entry point did not produce its smoke marker" in build_script
+    assert "configuration.capturesAudio = true" in helper_source
+    assert "configuration.excludesCurrentProcessAudio = true" in helper_source

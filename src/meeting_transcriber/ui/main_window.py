@@ -48,10 +48,8 @@ from meeting_transcriber.capture.devices import (
     AudioDeviceDiscovery,
     DeviceDiscoveryError,
 )
-from meeting_transcriber.capture.windows_pyaudio import (
-    PyAudioWPatchDeviceBackend,
-    PyAudioWPatchStreamFactory,
-)
+from meeting_transcriber.capture.platform_backend import create_platform_capture_backend
+from meeting_transcriber.capture.streams import AudioStreamFactory
 from meeting_transcriber.domain.session import SessionState
 from meeting_transcriber.domain.transcript import TranscriptionJobState, TranscriptionProfile
 from meeting_transcriber.infrastructure.paths import (
@@ -377,7 +375,7 @@ class HomePage(QWidget):
         self.feature_cards = (
             FeatureCard(
                 "Two-source capture",
-                "Microphone and Windows system audio remain separate and recoverable.",
+                "Microphone and meeting/system audio remain separate and recoverable.",
                 "RECORD",
             ),
             FeatureCard(
@@ -432,7 +430,8 @@ class DiagnosticsPage(QWidget):
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
-        self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
+        platform_capture = create_platform_capture_backend()
+        self.audio_backend = audio_backend or platform_capture.devices
         self.model_root = model_root or default_models_directory()
         self.meeting_root = meeting_root or default_meetings_directory()
         root = QVBoxLayout(self)
@@ -490,12 +489,12 @@ class DiagnosticsPage(QWidget):
         )
         card_list.addWidget(self.transcription_card)
         self.audio_card = DiagnosticCard(
-            "Windows capture devices",
+            f"Capture devices ({platform_capture.display_name})",
             "Not checked - refresh to enumerate devices without recording.",
         )
         card_list.addWidget(self.audio_card)
         self.refresh_audio_button = QPushButton("Refresh audio devices")
-        self.refresh_audio_button.setAccessibleName("Refresh Windows audio devices")
+        self.refresh_audio_button.setAccessibleName("Refresh desktop audio devices")
         self.refresh_audio_button.clicked.connect(self._refresh_audio_devices)
         card_list.addWidget(
             self.refresh_audio_button,
@@ -582,6 +581,7 @@ class MainWindow(QMainWindow):
         transcription_service: TranscriptionWorkflow | None = None,
         first_run_store: FirstRunStore | None = None,
         application_settings_store: ApplicationSettingsStore | None = None,
+        audio_stream_factory: AudioStreamFactory | None = None,
     ):
         super().__init__()
         uses_default_storage = session_service is None
@@ -602,7 +602,9 @@ class MainWindow(QMainWindow):
             migrated_meeting_directories = self.session_service.store.migrate_legacy_directories()
         except OSError as error:
             meeting_directory_migration_error = error
-        self.audio_backend = audio_backend or PyAudioWPatchDeviceBackend()
+        platform_capture = create_platform_capture_backend()
+        self.audio_backend = audio_backend or platform_capture.devices
+        self.audio_stream_factory = audio_stream_factory or platform_capture.streams
         self.first_run_store = first_run_store or (
             FirstRunStore(default_first_run_state_file()) if uses_default_storage else None
         )
@@ -623,7 +625,7 @@ class MainWindow(QMainWindow):
         self.recording_service = recording_service or MeetingRecordingService(
             self.session_service,
             self.audio_backend,
-            PyAudioWPatchStreamFactory(),
+            self.audio_stream_factory,
         )
         self.transcription_service = transcription_service or MeetingTranscriptionService(
             self.session_service,
@@ -797,7 +799,7 @@ class MainWindow(QMainWindow):
         recording_service = MeetingRecordingService(
             session_service,
             self.audio_backend,
-            PyAudioWPatchStreamFactory(),
+            self.audio_stream_factory,
         )
         transcription_service = MeetingTranscriptionService(
             session_service,

@@ -42,7 +42,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments == ["--smoke-test"] or package_smoke_marker is not None:
         if package_smoke_marker is not None:
             importlib.import_module("faster_whisper")
-            importlib.import_module("pyaudiowpatch")
+            if sys.platform == "win32":
+                importlib.import_module("pyaudiowpatch")
+            elif sys.platform == "darwin":
+                importlib.import_module("sounddevice")
+                from meeting_transcriber.capture.macos_coreaudio import (
+                    mac_system_audio_helper_path,
+                )
+
+                if not mac_system_audio_helper_path().is_file():
+                    raise RuntimeError("The packaged macOS system-audio helper is missing")
         app = create_application(["meeting-transcriber", "-platform", "offscreen"])
         app.processEvents()
         if package_smoke_marker is not None:

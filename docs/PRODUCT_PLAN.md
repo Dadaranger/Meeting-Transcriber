@@ -11,9 +11,9 @@ audio sources, record, review speaker labels, and export the result.
 
 ## Target user
 
-The first target user is an individual Windows desktop user who participates in
-online meetings and wants personal meeting notes. The user may not have a GPU
-and should not need to understand speech-model internals.
+The target user is an individual Windows or Mac desktop user who participates in
+online meetings and wants personal meeting notes. The user may not have a GPU and
+should not need to understand speech-model internals.
 
 ## Product principles
 
@@ -47,9 +47,9 @@ and should not need to understand speech-model internals.
 
 ### Recording
 
-- Windows 10/11 support
+- Windows 10/11 and macOS 13+ support
 - Microphone capture
-- WASAPI loopback capture of the selected output device
+- WASAPI loopback capture on Windows and ScreenCaptureKit system audio on macOS
 - Independent level meters for microphone and system audio
 - Start, pause, resume, and stop controls
 - Elapsed-time, disk-space, and recording-state indicators
@@ -96,7 +96,7 @@ and should not need to understand speech-model internals.
 - Mobile support
 - Cloud sync, accounts, collaboration, or sharing
 - Perfect handling of simultaneous/overlapping speech
-- macOS and Linux installers
+- Linux installers
 - Automatic semantic summaries that are required for a successful export
 
 These may become later milestones, but none should block a trustworthy local
@@ -104,7 +104,7 @@ recording and transcript workflow.
 
 ## Definition of a useful first release
 
-A release candidate is useful when a non-technical Windows user can install it,
+A release candidate is useful when a non-technical Windows or Mac user can install it,
 record a 60-minute meeting containing both local and remote speech, stop safely,
 process the session on CPU, review speaker labels, and open a readable TXT
 file without using a terminal.
