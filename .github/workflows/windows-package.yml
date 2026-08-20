@@ -191,6 +191,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
       - name: Download all platform artifacts
         uses: actions/download-artifact@v8
         with:
