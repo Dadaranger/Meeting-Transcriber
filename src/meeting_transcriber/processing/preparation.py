@@ -12,6 +12,14 @@ from typing import cast
 from uuid import UUID
 
 from meeting_transcriber.domain.transcript import TranscriptSource
+from meeting_transcriber.processing.imported_media import (
+    IMPORTED_AUDIO_NAME,
+    IMPORTED_MEDIA_MANIFEST_NAME,
+    ImportedMediaError,
+    ImportedMediaManifestStore,
+    MediaAudioExtractor,
+    PyAVAudioExtractor,
+)
 
 TARGET_SAMPLE_RATE = 16_000
 TARGET_CHANNELS = 1
@@ -190,8 +198,18 @@ def _normalize_wave(source: Path, destination: Path, header: _WaveHeader) -> int
 class AudioPreparationService:
     """Validate immutable capture chunks and create resumable 16 kHz mono copies."""
 
+    def __init__(self, media_extractor: MediaAudioExtractor | None = None):
+        self.media_extractor = media_extractor or PyAVAudioExtractor()
+
     def prepare(self, session_directory: Path, run_id: str) -> PreparedAudioPlan:
         normalized_run_id = str(UUID(run_id))
+        imported_manifest = session_directory / IMPORTED_MEDIA_MANIFEST_NAME
+        if imported_manifest.is_file():
+            return self._prepare_imported_media(
+                session_directory,
+                imported_manifest,
+                normalized_run_id,
+            )
         manifest_path = session_directory / "capture.json"
         try:
             raw_document: object = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -254,6 +272,66 @@ class AudioPreparationService:
             timeline_duration_ms=max(
                 chunk.timeline_start_ms + chunk.duration_ms for chunk in ordered
             ),
+        )
+
+    def _prepare_imported_media(
+        self,
+        session_directory: Path,
+        manifest_path: Path,
+        run_id: str,
+    ) -> PreparedAudioPlan:
+        try:
+            manifest = ImportedMediaManifestStore(manifest_path).load()
+            destination = session_directory / "audio" / IMPORTED_AUDIO_NAME
+            expected_format = _WaveHeader(
+                frame_count=0,
+                sample_rate=TARGET_SAMPLE_RATE,
+                channels=TARGET_CHANNELS,
+                sample_width_bytes=TARGET_SAMPLE_WIDTH_BYTES,
+            )
+            header: _WaveHeader | None = None
+            if destination.is_file():
+                try:
+                    candidate = _read_wave_header(destination)
+                except CapturePreparationError:
+                    candidate = expected_format
+                if (
+                    candidate.frame_count > 0
+                    and candidate.sample_rate == expected_format.sample_rate
+                    and candidate.channels == expected_format.channels
+                    and candidate.sample_width_bytes == expected_format.sample_width_bytes
+                ):
+                    header = candidate
+            if header is None:
+                self.media_extractor.extract(manifest.source_path, destination)
+                header = _read_wave_header(destination)
+            if (
+                header.frame_count <= 0
+                or header.sample_rate != TARGET_SAMPLE_RATE
+                or header.channels != TARGET_CHANNELS
+                or header.sample_width_bytes != TARGET_SAMPLE_WIDTH_BYTES
+            ):
+                raise CapturePreparationError(
+                    "Imported audio was not decoded to 16 kHz mono signed PCM"
+                )
+        except ImportedMediaError as error:
+            raise CapturePreparationError(str(error)) from error
+
+        duration_ms = max(1, round(header.frame_count * 1_000 / TARGET_SAMPLE_RATE))
+        chunk = PreparedAudioChunk(
+            source=TranscriptSource.IMPORTED_MEDIA,
+            sequence=1,
+            path=destination,
+            timeline_start_ms=0,
+            duration_ms=duration_ms,
+            frame_count=header.frame_count,
+        )
+        return PreparedAudioPlan(
+            session_id=manifest.session_id,
+            run_id=run_id,
+            chunks=(chunk,),
+            total_audio_ms=duration_ms,
+            timeline_duration_ms=duration_ms,
         )
 
     @staticmethod

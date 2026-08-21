@@ -42,11 +42,19 @@ def merge_remote_speakers(
         if turn.speaker_id not in remote_speaker_ids and turn.speaker_id in used_speaker_ids:
             remote_speaker_ids.append(turn.speaker_id)
     speakers = list(original_speakers.values())
+    remote_source = next(
+        (
+            segment.source
+            for segment in segments
+            if segment.source is not TranscriptSource.MICROPHONE
+        ),
+        TranscriptSource.SYSTEM_AUDIO,
+    )
     speakers.extend(
         TranscriptSpeaker(
             speaker_id,
             f"Remote Speaker {index}",
-            TranscriptSource.SYSTEM_AUDIO,
+            remote_source,
         )
         for index, speaker_id in enumerate(remote_speaker_ids, start=1)
         if speaker_id not in original_speakers

@@ -21,7 +21,7 @@ from meeting_transcriber.capture.devices import (
     AudioDeviceKind,
 )
 from meeting_transcriber.capture.manifest import CaptureJournalState, CaptureManifest
-from meeting_transcriber.domain.session import MeetingSession, SessionState
+from meeting_transcriber.domain.session import MeetingSession, SessionOrigin, SessionState
 from meeting_transcriber.domain.transcript import (
     TranscriptDocument,
     TranscriptionJob,
@@ -299,6 +299,53 @@ def test_create_draft_button_persists_a_named_session(
     assert window.storage_timer.isActive()
 
 
+def test_home_imports_authorized_media_and_opens_transcription(
+    qtbot: QtBot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "phone interview.mp4"
+    source.write_bytes(b"synthetic-video")
+    meeting_root = tmp_path / "meetings"
+    sessions = MeetingSessionService(SessionStore(meeting_root))
+    recording = FakeRecordingWorkflow(sessions)
+    transcription = FakeTranscriptionWorkflow(sessions)
+    window = MainWindow(
+        sessions,
+        FakeAudioDiscovery(),
+        recording,
+        transcription_service=transcription,
+    )
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: (str(source), "Audio and video files"),
+    )
+    monkeypatch.setattr(
+        QInputDialog,
+        "getText",
+        lambda *args, **kwargs: ("Customer interview", True),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    qtbot.mouseClick(  # type: ignore[no-untyped-call]
+        window.home_page.import_button,
+        Qt.MouseButton.LeftButton,
+    )
+
+    imported = sessions.recent_sessions()[0]
+    assert imported.title == "Customer interview"
+    assert imported.origin is SessionOrigin.IMPORTED_MEDIA
+    assert window.pages.currentWidget() is window.transcription_page
+    assert window.transcription_page.meeting_title.text() == "Customer interview"
+    assert (sessions.session_directory(imported.session_id) / "import.json").is_file()
+
+
 def test_diagnostics_refreshes_audio_devices_explicitly(qtbot: QtBot, tmp_path: Path) -> None:
     service = MeetingSessionService(SessionStore(tmp_path))
     window = MainWindow(service, FakeAudioDiscovery())
@@ -418,6 +465,9 @@ def test_home_and_history_content_do_not_clip_at_minimum_window_size(
     qtbot.mouseClick(window.history_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
     qtbot.wait(50)
     action_buttons = (
+        window.home_page.start_button,
+        window.home_page.import_button,
+        window.history_page.import_button,
         window.history_page.open_folder_button,
         window.history_page.open_notes_button,
         window.history_page.review_button,

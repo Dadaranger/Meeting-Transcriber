@@ -1,7 +1,7 @@
 # Meeting Transcriber
 
-Record online meetings from your Windows PC or Mac, transcribe them locally, and open
-the result as a readable TXT file.
+Record online meetings or import existing audio and video on your Windows PC or Mac,
+transcribe locally, and open the result as a readable TXT file.
 
 [![CI](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/ci.yml/badge.svg)](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/ci.yml)
 [![Desktop packages](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/windows-package.yml/badge.svg)](https://github.com/Dadaranger/Meeting-Transcriber/actions/workflows/windows-package.yml)
@@ -12,7 +12,7 @@ applications. It works through native desktop audio capture, so it does not need
 join the call as a bot and is not tied to Zoom, Microsoft Teams, Google Meet, or
 another provider.
 
-> **Desktop preview:** version 0.1.4 is ready for hands-on testing, but it is not yet
+> **Desktop preview:** version 0.1.5 is ready for hands-on testing, but it is not yet
 > a fully qualified production release. Review the [known limitations](#known-limitations)
 > before relying on it for an important meeting.
 
@@ -21,9 +21,9 @@ another provider.
 ### macOS 13 or newer
 
 - **Apple Silicon (M1, M2, M3, M4, or newer):**
-  [download the arm64 DMG](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/Meeting-Transcriber-0.1.4-macOS-arm64.dmg)
+  [download the arm64 DMG](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.5-preview.1/Meeting-Transcriber-0.1.5-macOS-arm64.dmg)
 - **Intel Mac:**
-  [download the x86_64 DMG](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/Meeting-Transcriber-0.1.4-macOS-x86_64.dmg)
+  [download the x86_64 DMG](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.5-preview.1/Meeting-Transcriber-0.1.5-macOS-x86_64.dmg)
 
 To check your Mac type, open the Apple menu, choose **About This Mac**, and look at
 **Chip** or **Processor**. DMG and ZIP downloads contain the application, Python
@@ -46,11 +46,11 @@ ScreenCaptureKit interface to receive meeting/system audio.
 
 ### Windows 10 or 11
 
-[Download the Meeting Transcriber 0.1.4 preview installer](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/Meeting-Transcriber-0.1.4-Setup.exe)
+[Download the Meeting Transcriber 0.1.5 preview installer](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.5-preview.1/Meeting-Transcriber-0.1.5-Setup.exe)
 
 You can also download the
-[portable ZIP](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/Meeting-Transcriber-0.1.4-portable.zip)
-or [verify all release checksums](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.4-preview.1/SHA256SUMS.txt).
+[portable ZIP](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.5-preview.1/Meeting-Transcriber-0.1.5-portable.zip)
+or [verify all release checksums](https://github.com/Dadaranger/Meeting-Transcriber/releases/download/v0.1.5-preview.1/SHA256SUMS.txt).
 
 The installer includes the desktop application, Python runtime, Windows audio
 capture, and offline transcription engine. You do not need to install Python or use
@@ -58,7 +58,7 @@ a terminal.
 
 Install the Windows preview:
 
-1. Download `Meeting-Transcriber-0.1.4-Setup.exe` from the link above.
+1. Download `Meeting-Transcriber-0.1.5-Setup.exe` from the link above.
 2. Open the downloaded file and follow the setup wizard. Installation is per-user
    and does not require administrator access.
 3. Open **Meeting Transcriber** from the Start menu.
@@ -79,6 +79,7 @@ or downloaded speech models.
 - Supports start, pause, resume, stop, audio-level testing, and interrupted-session
   recovery.
 - Transcribes recordings on your computer with faster-whisper.
+- Imports common audio and video files for the same private offline transcription workflow.
 - Offers fast, balanced, and best-accuracy transcription profiles.
 - Retries unusually quiet speech with a more sensitive detection pass.
 - Creates timestamped, plain-text meeting notes that open in Notepad and other
@@ -107,6 +108,21 @@ The consent acknowledgement records your confirmation inside the meeting session
 It does not independently verify participant consent or guarantee compliance with
 recording laws or workplace policies.
 
+## Import and transcribe existing media
+
+1. Select **Import audio or video** from Home or History.
+2. Choose an audio file (`WAV`, `MP3`, `M4A`, `AAC`, `FLAC`, `OGG`, `Opus`, or
+   `WMA`) or a video file (`MP4`, `MOV`, `MKV`, `WebM`, `AVI`, `M4V`, or `WMV`).
+3. Give the imported session a readable name and confirm that you are authorized to
+   use and transcribe the recording.
+4. Choose the language and accuracy profile, then start offline transcription.
+5. When processing finishes, select **Open saved TXT**.
+
+The original file is never modified or uploaded. During background preparation, its
+audio track is decoded locally to a reusable 16 kHz mono WAV inside the meeting
+folder. Keep the original file available until that preparation step completes.
+Imported videos must contain an audio track.
+
 ## Files and privacy
 
 Audio, transcripts, corrections, and TXT notes stay on your computer. The application
@@ -123,6 +139,8 @@ macOS:   ~/Documents/Meeting Transcriber/Meetings/Meeting name - YYYY-MM-DD HHMM
 Each folder can contain:
 
 - `audio\` — recoverable microphone and system-audio WAV chunks
+- `import.json` and `audio\imported-media.wav` — local import metadata and reusable
+  decoded audio for an imported file
 - `Meeting name - YYYY-MM-DD HHMMSS.txt` — the human-readable result
 - `transcript.json` — the canonical structured transcript
 - `session.json` and `capture.json` — session and recording metadata
@@ -135,7 +153,8 @@ that open the exact meeting folder and the saved TXT file.
 
 - Windows 10 version 1809 or newer, Windows 11, or macOS 13 Ventura or newer
 - A 64-bit Windows computer, Apple Silicon Mac, or Intel Mac
-- A microphone and a meeting playback/output device
+- A microphone and a meeting playback/output device for live recording; neither is
+  required when transcribing an imported file
 - Enough free disk space for WAV recordings and the selected speech model
 - Internet access for the first approved download of each speech model
 
@@ -162,6 +181,9 @@ audio level meter moves before recording.
 Open the meeting folder and confirm that the WAV files contain audible speech. Retry
 with the correct language selected. The application automatically makes one more
 sensitive pass for valid but quiet recordings.
+
+For imported media, confirm that the file contains an audible audio track and retry
+with the correct language. A video without an audio track cannot be transcribed.
 
 **A speech model could not be downloaded**
 
@@ -215,7 +237,7 @@ Build the frozen Windows application and installer with:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.4
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -AppVersion 0.1.5
 ```
 
 On macOS 13 or newer, compile the ScreenCaptureKit helper and build the app, DMG, and

@@ -4,7 +4,7 @@ setlocal
 pushd "%~dp0.." || exit /b 1
 
 if /I "%~1"=="--skip-sync" goto checks
-uv sync --frozen --extra dev || goto failure
+uv sync --frozen --extra dev --extra transcription || goto failure
 
 :checks
 uv run --frozen ruff format --check . || goto failure

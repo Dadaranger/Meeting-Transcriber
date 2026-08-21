@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from meeting_transcriber.domain.session import MeetingSession, SessionState
+from meeting_transcriber.domain.session import MeetingSession, SessionOrigin, SessionState
 
 
 def _label(text: str, object_name: str | None = None, *, wrap: bool = False) -> QLabel:
@@ -35,6 +35,7 @@ class HistoryPage(QWidget):
     review_requested = Signal(str)
     recover_requested = Signal(str)
     transcribe_requested = Signal(str)
+    import_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -65,6 +66,13 @@ class HistoryPage(QWidget):
                 wrap=True,
             )
         )
+        quick_actions = QHBoxLayout()
+        self.import_button = QPushButton("Import audio or video")
+        self.import_button.setObjectName("primaryButton")
+        self.import_button.clicked.connect(self.import_requested.emit)
+        quick_actions.addWidget(self.import_button)
+        quick_actions.addStretch()
+        root.addLayout(quick_actions)
 
         card = QFrame()
         card.setObjectName("historyCard")
@@ -125,6 +133,8 @@ class HistoryPage(QWidget):
             updated = session.updated_at.astimezone().strftime("%Y-%m-%d %H:%M")
             state = session.state.value.replace("_", " ").title()
             markers: list[str] = []
+            if session.origin is SessionOrigin.IMPORTED_MEDIA:
+                markers.append("imported media")
             if session.session_id in recoverable_ids:
                 markers.append("recoverable audio")
             if session.session_id in notes_ids:

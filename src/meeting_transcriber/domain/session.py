@@ -18,6 +18,11 @@ class SessionState(StrEnum):
     EXPORTED = "exported"
 
 
+class SessionOrigin(StrEnum):
+    LIVE_RECORDING = "live_recording"
+    IMPORTED_MEDIA = "imported_media"
+
+
 class ConsentCaptureSource(StrEnum):
     MICROPHONE = "microphone"
     SYSTEM_AUDIO = "system_audio"
@@ -69,7 +74,7 @@ def _validated_timestamp(value: datetime | None) -> datetime:
 class MeetingSession:
     """Immutable lifecycle state for one meeting session."""
 
-    SCHEMA_VERSION: ClassVar[int] = 2
+    SCHEMA_VERSION: ClassVar[int] = 3
 
     session_id: str
     title: str
@@ -77,6 +82,7 @@ class MeetingSession:
     created_at: datetime
     updated_at: datetime
     revision: int = 0
+    origin: SessionOrigin = SessionOrigin.LIVE_RECORDING
     consent_confirmed_at: datetime | None = None
     consent_text_version: int | None = None
     consent_capture_sources: tuple[ConsentCaptureSource, ...] = ()
@@ -89,6 +95,13 @@ class MeetingSession:
             raise ValueError("Meeting title cannot be blank")
         if self.revision < 0:
             raise ValueError("Session revision cannot be negative")
+        if self.origin is SessionOrigin.IMPORTED_MEDIA and self.state in {
+            SessionState.DRAFT,
+            SessionState.RECORDING,
+            SessionState.PAUSED,
+            SessionState.INTERRUPTED,
+        }:
+            raise ValueError("Imported-media sessions must contain completed source media")
         if self.consent_confirmed_at is None:
             if self.consent_text_version is not None or self.consent_capture_sources:
                 raise ValueError("Consent details require a confirmation timestamp")
@@ -125,6 +138,27 @@ class MeetingSession:
             state=SessionState.DRAFT,
             created_at=timestamp,
             updated_at=timestamp,
+        )
+
+    @classmethod
+    def imported(
+        cls,
+        title: str = "Imported recording",
+        *,
+        session_id: str | None = None,
+        now: datetime | None = None,
+    ) -> MeetingSession:
+        timestamp = _validated_timestamp(now)
+        normalized_title = title.strip() or "Imported recording"
+        return cls(
+            session_id=session_id or str(uuid4()),
+            title=normalized_title,
+            state=SessionState.RECORDED,
+            created_at=timestamp,
+            updated_at=timestamp,
+            origin=SessionOrigin.IMPORTED_MEDIA,
+            started_at=timestamp,
+            stopped_at=timestamp,
         )
 
     @property

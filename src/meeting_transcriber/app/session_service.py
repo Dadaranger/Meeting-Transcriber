@@ -29,6 +29,11 @@ class MeetingSessionService:
         self.store.save(session)
         return session
 
+    def create_imported(self, title: str = "Imported recording") -> MeetingSession:
+        session = MeetingSession.imported(title)
+        self.store.save(session)
+        return session
+
     def get_session(self, session_id: str) -> MeetingSession:
         return self.store.load(session_id)
 

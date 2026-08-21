@@ -8,6 +8,7 @@ from meeting_transcriber.domain.session import (
     ConsentCaptureSource,
     InvalidSessionTransition,
     MeetingSession,
+    SessionOrigin,
     SessionState,
 )
 
@@ -23,6 +24,19 @@ def test_new_session_is_a_normalized_draft() -> None:
     assert session.created_at == START
     assert session.updated_at == START
     assert session.revision == 0
+    assert session.origin is SessionOrigin.LIVE_RECORDING
+    assert session.consent_confirmed_at is None
+    assert not session.has_current_recording_consent
+
+
+def test_imported_session_starts_recorded_without_capture_consent() -> None:
+    session = MeetingSession.imported("  Interview video  ", session_id=SESSION_ID, now=START)
+
+    assert session.title == "Interview video"
+    assert session.origin is SessionOrigin.IMPORTED_MEDIA
+    assert session.state is SessionState.RECORDED
+    assert session.started_at == START
+    assert session.stopped_at == START
     assert session.consent_confirmed_at is None
     assert not session.has_current_recording_consent
 

@@ -27,6 +27,10 @@ from PySide6.QtWidgets import (
 )
 
 from meeting_transcriber import __version__
+from meeting_transcriber.app.media_import_service import (
+    MediaImportWorkflow,
+    MeetingMediaImportService,
+)
 from meeting_transcriber.app.recording_service import (
     MeetingRecordingService,
     RecordingWorkflow,
@@ -57,6 +61,10 @@ from meeting_transcriber.infrastructure.paths import (
     default_first_run_state_file,
     default_meetings_directory,
     default_models_directory,
+)
+from meeting_transcriber.processing.imported_media import (
+    MEDIA_FILE_FILTER,
+    ImportedMediaError,
 )
 from meeting_transcriber.processing.runtime_diagnostics import (
     inspect_diarization_runtime,
@@ -323,6 +331,7 @@ class FeatureCard(QFrame):
 
 class HomePage(QWidget):
     draft_requested = Signal()
+    import_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -363,6 +372,10 @@ class HomePage(QWidget):
         self.start_button.setAccessibleName("Create a meeting draft")
         self.start_button.clicked.connect(self.draft_requested.emit)
         action_row.addWidget(self.start_button)
+        self.import_button = QPushButton("Import audio or video")
+        self.import_button.setAccessibleName("Import audio or video for transcription")
+        self.import_button.clicked.connect(self.import_requested.emit)
+        action_row.addWidget(self.import_button)
         action_row.addStretch()
         hero_layout.addSpacing(6)
         hero_layout.addLayout(action_row)
@@ -582,6 +595,7 @@ class MainWindow(QMainWindow):
         first_run_store: FirstRunStore | None = None,
         application_settings_store: ApplicationSettingsStore | None = None,
         audio_stream_factory: AudioStreamFactory | None = None,
+        media_import_service: MediaImportWorkflow | None = None,
     ):
         super().__init__()
         uses_default_storage = session_service is None
@@ -610,7 +624,10 @@ class MainWindow(QMainWindow):
         )
         self.folder_opener = folder_opener or open_local_folder
         self._owns_storage_services = (
-            uses_default_storage and recording_service is None and transcription_service is None
+            uses_default_storage
+            and recording_service is None
+            and transcription_service is None
+            and media_import_service is None
         )
         self.notes_store = MeetingNotesStore(self.session_service.store.root)
         self.transcript_store = TranscriptStore(self.session_service.store.root)
@@ -633,6 +650,9 @@ class MainWindow(QMainWindow):
             default_models_directory(),
             review_store=self.review_store,
         )
+        self.media_import_service = media_import_service or MeetingMediaImportService(
+            self.session_service
+        )
         recovered_transcriptions = self.transcription_service.recover_interrupted_jobs()
         self.setWindowTitle("Meeting Transcriber")
         self.setMinimumSize(960, 640)
@@ -647,6 +667,7 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.home_page = HomePage()
         self.home_page.draft_requested.connect(self._create_draft)
+        self.home_page.import_requested.connect(self._import_media)
         self.pages.addWidget(self.home_page)
         self.history_page = HistoryPage()
         self.history_page.refresh_requested.connect(self._refresh_history)
@@ -655,6 +676,7 @@ class MainWindow(QMainWindow):
         self.history_page.review_requested.connect(self._open_review)
         self.history_page.recover_requested.connect(self._recover_session)
         self.history_page.transcribe_requested.connect(self._open_transcription)
+        self.history_page.import_requested.connect(self._import_media)
         self.pages.addWidget(self.history_page)
         self.recording_page = RecordingPage()
         self.recording_page.begin_requested.connect(self._begin_recording)
@@ -823,6 +845,7 @@ class MainWindow(QMainWindow):
         )
         self.recording_service = recording_service
         self.transcription_service = transcription_service
+        self.media_import_service = MeetingMediaImportService(session_service)
         self._refresh_history()
         return len(abandoned_sessions), len(recovered_transcriptions)
 
@@ -854,6 +877,53 @@ class MainWindow(QMainWindow):
         self.storage_timer.start()
         self.pages.setCurrentWidget(self.recording_page)
         self.statusBar().showMessage(f"Draft saved - review recording setup for {session.title}")
+
+    def _import_media(self) -> None:
+        if self.recording_service.is_recording or self.transcription_service.is_processing:
+            return
+        selected, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Import audio or video",
+            "",
+            MEDIA_FILE_FILTER,
+        )
+        if not selected:
+            return
+        source = Path(selected)
+        title, accepted = QInputDialog.getText(
+            self,
+            "Name imported recording",
+            "Session name:",
+            text=source.stem or "Imported recording",
+        )
+        if not accepted:
+            return
+        confirmation = QMessageBox.question(
+            self,
+            "Confirm permission to transcribe",
+            "Only import recordings you are authorized to use and transcribe. "
+            "Do you confirm that you have permission to process this file?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if confirmation is not QMessageBox.StandardButton.Yes:
+            return
+        try:
+            session = self.media_import_service.import_file(
+                source,
+                title=title,
+                authorization_confirmed=True,
+            )
+        except (ImportedMediaError, OSError, ValueError) as error:
+            self.statusBar().showMessage(f"Media import failed - {error}")
+            QMessageBox.warning(self, "Media could not be imported", str(error))
+            return
+        self._refresh_history()
+        self._open_transcription(session.session_id)
+        self.statusBar().showMessage(
+            f"Imported {source.name} - configure private offline transcription",
+            10_000,
+        )
 
     def _begin_recording(
         self,

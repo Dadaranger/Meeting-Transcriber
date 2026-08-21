@@ -11,6 +11,7 @@ from meeting_transcriber.app.session_service import (
 from meeting_transcriber.domain.session import (
     CONSENT_STATEMENT_VERSION,
     REQUIRED_CONSENT_SOURCES,
+    SessionOrigin,
     SessionState,
 )
 from meeting_transcriber.storage.session_store import SessionStore
@@ -26,6 +27,16 @@ def test_service_persists_current_recording_consent(tmp_path: Path) -> None:
     assert confirmed.consent_text_version == CONSENT_STATEMENT_VERSION
     assert confirmed.consent_capture_sources == REQUIRED_CONSENT_SOURCES
     assert service.get_session(draft.session_id) == confirmed
+
+
+def test_service_creates_persisted_imported_session(tmp_path: Path) -> None:
+    service = MeetingSessionService(SessionStore(tmp_path))
+
+    imported = service.create_imported("Phone recording")
+
+    assert imported.origin is SessionOrigin.IMPORTED_MEDIA
+    assert imported.state is SessionState.RECORDED
+    assert service.get_session(imported.session_id) == imported
 
 
 @pytest.mark.parametrize("abandoned_state", [SessionState.RECORDING, SessionState.PAUSED])

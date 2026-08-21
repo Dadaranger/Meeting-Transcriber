@@ -67,6 +67,21 @@ class FakePreparer:
         return PreparedAudioPlan(self.session_id, run_id, chunks, 2_000, 1_500)
 
 
+class FakeImportedPreparer(FakePreparer):
+    def prepare(self, session_directory: Path, run_id: str) -> PreparedAudioPlan:
+        assert session_directory == self.session_directory
+        self.run_ids.append(run_id)
+        chunk = PreparedAudioChunk(
+            TranscriptSource.IMPORTED_MEDIA,
+            1,
+            session_directory / "audio" / "imported-media.wav",
+            0,
+            1_000,
+            16_000,
+        )
+        return PreparedAudioPlan(self.session_id, run_id, (chunk,), 1_000, 1_000)
+
+
 class FakeEngine:
     def __init__(self, *, fail: bool = False, block_until_cancelled: bool = False):
         self.fail = fail
@@ -260,6 +275,42 @@ def test_transcription_merges_sources_and_persists_ready_transcript(tmp_path: Pa
     assert engine.prepared
     assert completed.model_downloaded_bytes == 100
     assert completed.model_total_bytes == 100
+
+
+def test_transcription_labels_imported_media_and_writes_plain_text_notes(tmp_path: Path) -> None:
+    sessions = MeetingSessionService(SessionStore(tmp_path))
+    imported = sessions.create_imported("Phone interview")
+    transcripts = TranscriptStore(tmp_path)
+    preparer = FakeImportedPreparer(
+        imported.session_id,
+        sessions.session_directory(imported.session_id),
+    )
+    factory = FakeEngineFactory([FakeEngine()])
+    service = MeetingTranscriptionService(
+        sessions,
+        transcripts,
+        tmp_path / "models",
+        preparer=preparer,
+        engine_factory=factory,
+    )
+
+    service.start(
+        imported.session_id,
+        profile=TranscriptionProfile.FAST,
+        language="en",
+        hotwords=None,
+        allow_download=False,
+    )
+    completed = service.wait()
+    transcript = transcripts.load_transcript(imported.session_id)
+    notes = MeetingNotesStore(tmp_path).notes_file(imported.session_id).read_text(encoding="utf-8")
+
+    assert completed.state is TranscriptionJobState.COMPLETED
+    assert transcript.speakers[0].display_name == "Imported recording"
+    assert transcript.speakers[0].source is TranscriptSource.IMPORTED_MEDIA
+    assert transcript.segments[0].source is TranscriptSource.IMPORTED_MEDIA
+    assert "Generated locally from imported media" in notes
+    assert "Imported media" in notes
 
 
 def test_transcription_cancel_returns_session_to_recorded(tmp_path: Path) -> None:

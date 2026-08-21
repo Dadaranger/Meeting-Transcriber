@@ -4,12 +4,13 @@ import re
 from datetime import UTC, datetime
 
 from meeting_transcriber.domain.review import StructuredNotesCorrection
-from meeting_transcriber.domain.session import MeetingSession
+from meeting_transcriber.domain.session import MeetingSession, SessionOrigin
 from meeting_transcriber.domain.transcript import TranscriptDocument, TranscriptSource
 
 SOURCE_LABELS = {
     TranscriptSource.MICROPHONE: "Microphone",
     TranscriptSource.SYSTEM_AUDIO: "System audio",
+    TranscriptSource.IMPORTED_MEDIA: "Imported media",
 }
 
 
@@ -24,13 +25,22 @@ def render_meeting_notes(
         raise ValueError("Meeting session and transcript IDs do not match")
 
     notes = structured_notes or StructuredNotesCorrection()
+    imported = session.origin is SessionOrigin.IMPORTED_MEDIA
     lines = [
         _heading(_plain_text(session.title), "="),
         "",
-        "Generated locally from recorded audio. Review the transcript before sharing it.",
+        (
+            "Generated locally from imported media. Review the transcript before sharing it."
+            if imported
+            else "Generated locally from recorded audio. Review the transcript before sharing it."
+        ),
         "",
         _heading("MEETING DETAILS"),
-        f"Recorded: {_format_datetime(session.started_at or session.created_at)}",
+        (
+            f"Imported: {_format_datetime(session.created_at)}"
+            if imported
+            else f"Recorded: {_format_datetime(session.started_at or session.created_at)}"
+        ),
         f"Duration: {_format_duration(transcript.duration_ms)}",
         f"Language: {_plain_text(transcript.language)}",
         f"Transcription profile: {_plain_text(transcript.profile.value.title())}",
@@ -60,7 +70,9 @@ def render_meeting_notes(
     speakers = {speaker.speaker_id: speaker for speaker in transcript.speakers}
     if not transcript.segments:
         lines.append(
-            "No reliable speech was detected. Check the selected audio devices and levels."
+            "No reliable speech was detected. Confirm the imported file contains audible speech."
+            if imported
+            else "No reliable speech was detected. Check the selected audio devices and levels."
         )
     for segment in transcript.segments:
         speaker = speakers[segment.speaker_id]

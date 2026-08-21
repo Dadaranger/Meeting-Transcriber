@@ -8,6 +8,7 @@ from meeting_transcriber.domain.session import (
     CONSENT_STATEMENT_VERSION,
     REQUIRED_CONSENT_SOURCES,
     MeetingSession,
+    SessionOrigin,
 )
 from meeting_transcriber.storage.session_store import (
     SessionDataError,
@@ -31,6 +32,7 @@ def test_session_round_trip_uses_versioned_json(tmp_path: Path) -> None:
     assert loaded == session
     assert document["schema_version"] == MeetingSession.SCHEMA_VERSION
     assert document["state"] == "draft"
+    assert document["origin"] == "live_recording"
     assert document["consent"] is None
     assert path.parent.name == f"Design review - {START.astimezone():%Y-%m-%d %H%M%S}"
     assert list(path.parent.glob("*.tmp")) == []
@@ -69,6 +71,29 @@ def test_version_one_session_loads_as_legacy_consent(tmp_path: Path) -> None:
     assert loaded.consent_text_version == 0
     assert loaded.consent_capture_sources == ()
     assert not loaded.has_current_recording_consent
+    assert loaded.origin is SessionOrigin.LIVE_RECORDING
+
+
+def test_version_two_session_defaults_to_live_recording_origin(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    session = MeetingSession.new(session_id=SESSION_ID, now=START)
+    path = store.save(session)
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["schema_version"] = 2
+    document.pop("origin")
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    assert store.load(SESSION_ID).origin is SessionOrigin.LIVE_RECORDING
+
+
+def test_imported_session_round_trip_preserves_origin(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    session = MeetingSession.imported("Imported interview", session_id=SESSION_ID, now=START)
+
+    path = store.save(session)
+
+    assert store.load(SESSION_ID) == session
+    assert json.loads(path.read_text(encoding="utf-8"))["origin"] == "imported_media"
 
 
 def test_save_atomically_replaces_an_existing_revision(tmp_path: Path) -> None:

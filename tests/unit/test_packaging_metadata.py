@@ -108,6 +108,7 @@ def test_windows_bundle_runs_the_real_entry_point_and_requires_smoke_evidence() 
 
     assert 'meeting_transcriber" / "__main__.py"' in specification
     assert 'meeting_transcriber" / "main.py"' not in specification
+    assert 'collect_all("av")' in specification
     assert "--package-smoke-test={0}" in build_script
     assert "entry point did not produce its smoke marker" in build_script
 
@@ -123,6 +124,7 @@ def test_macos_bundle_includes_native_audio_capture_and_requires_smoke_evidence(
 
     assert "MEETING_TRANSCRIBER_MAC_AUDIO_HELPER" in specification
     assert 'collect_all("sounddevice")' in specification
+    assert 'collect_all("av")' in specification
     assert 'name="Meeting Transcriber.app"' in specification
     assert '"LSMinimumSystemVersion": "13.0"' in specification
     assert "--package-smoke-test=$smoke_marker" in build_script
