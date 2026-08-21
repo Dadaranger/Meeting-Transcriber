@@ -20,6 +20,7 @@ faster_whisper_datas, faster_whisper_binaries, faster_whisper_imports = collect_
     "faster_whisper"
 )
 ctranslate_datas, ctranslate_binaries, ctranslate_imports = collect_all("ctranslate2")
+av_datas, av_binaries, av_imports = collect_all("av")
 sounddevice_datas, sounddevice_binaries, sounddevice_imports = collect_all("sounddevice")
 
 analysis = Analysis(
@@ -30,14 +31,18 @@ analysis = Analysis(
         + sounddevice_binaries
         + faster_whisper_binaries
         + ctranslate_binaries
+        + av_binaries
     ),
     datas=(
         [(str(asset_root / "meeting-transcriber.svg"), "meeting_transcriber/assets")]
         + sounddevice_datas
         + faster_whisper_datas
         + ctranslate_datas
+        + av_datas
     ),
-    hiddenimports=sounddevice_imports + faster_whisper_imports + ctranslate_imports,
+    hiddenimports=(
+        sounddevice_imports + faster_whisper_imports + ctranslate_imports + av_imports
+    ),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
