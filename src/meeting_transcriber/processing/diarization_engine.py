@@ -191,9 +191,11 @@ class RemoteAudioTimelineBuilder:
     """Assemble normalized system-audio chunks on their original meeting timeline."""
 
     def build(self, plan: PreparedAudioPlan, session_directory: Path) -> Path:
-        remote_chunks = plan.chunks_for(TranscriptSource.SYSTEM_AUDIO)
+        remote_chunks = tuple(
+            chunk for chunk in plan.chunks if chunk.source is not TranscriptSource.MICROPHONE
+        )
         if not remote_chunks:
-            raise DiarizationRuntimeError("No prepared system-audio chunks are available")
+            raise DiarizationRuntimeError("No prepared remote or imported audio is available")
         output = (
             session_directory
             / "derived"

@@ -9,7 +9,7 @@ from typing import Protocol
 from uuid import UUID, uuid5
 
 from meeting_transcriber.app.session_service import MeetingSessionService
-from meeting_transcriber.domain.session import SessionState
+from meeting_transcriber.domain.session import SessionOrigin, SessionState
 from meeting_transcriber.domain.transcript import (
     TranscriptDocument,
     TranscriptionJob,
@@ -201,7 +201,9 @@ class MeetingTranscriptionService:
                 raise TranscriptionWorkflowError("Another meeting is already being transcribed")
         session = self.session_service.get_session(session_id)
         if session.state not in {SessionState.RECORDED, SessionState.READY, SessionState.EXPORTED}:
-            raise TranscriptionWorkflowError("Only a completed recording can be transcribed")
+            raise TranscriptionWorkflowError(
+                "Only a completed recording or imported media file can be transcribed"
+            )
         normalized_language = language.strip() if language and language.strip() else None
         job = self._new_or_retry_job(
             session_id,
@@ -363,7 +365,7 @@ class MeetingTranscriptionService:
                 current = self.current_job() or current
                 self.transcript_store.save_transcript(transcript)
             if current.separate_remote_speakers and any(
-                segment.source is TranscriptSource.SYSTEM_AUDIO for segment in transcript.segments
+                segment.source is not TranscriptSource.MICROPHONE for segment in transcript.segments
             ):
                 if plan is None:
                     plan = self.preparer.prepare(
@@ -444,6 +446,25 @@ class MeetingTranscriptionService:
             key=lambda candidate: language_scores[candidate],
             default="und",
         )
+        session = self.session_service.get_session(current.session_id)
+        speakers = (
+            (
+                TranscriptSpeaker(
+                    "remote",
+                    "Imported recording",
+                    TranscriptSource.IMPORTED_MEDIA,
+                ),
+            )
+            if session.origin is SessionOrigin.IMPORTED_MEDIA
+            else (
+                TranscriptSpeaker("local", "You", TranscriptSource.MICROPHONE),
+                TranscriptSpeaker(
+                    "remote",
+                    "Remote speakers",
+                    TranscriptSource.SYSTEM_AUDIO,
+                ),
+            )
+        )
         return TranscriptDocument.new(
             current.session_id,
             run_id=current.job_id,
@@ -451,14 +472,7 @@ class MeetingTranscriptionService:
             engine=engine.engine_name,
             model=engine.model_name,
             profile=current.profile,
-            speakers=(
-                TranscriptSpeaker("local", "You", TranscriptSource.MICROPHONE),
-                TranscriptSpeaker(
-                    "remote",
-                    "Remote speakers",
-                    TranscriptSource.SYSTEM_AUDIO,
-                ),
-            ),
+            speakers=speakers,
             segments=tuple(
                 sorted(
                     segments,

@@ -65,7 +65,7 @@ class RemoteSpeakerService:
         cancel_requested: Callable[[], bool],
     ) -> TranscriptDocument:
         if not any(
-            segment.source is TranscriptSource.SYSTEM_AUDIO for segment in transcript.segments
+            segment.source is not TranscriptSource.MICROPHONE for segment in transcript.segments
         ):
             return transcript
         if cancel_requested():

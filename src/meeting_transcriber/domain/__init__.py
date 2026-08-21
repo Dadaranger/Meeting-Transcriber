@@ -6,6 +6,7 @@ from meeting_transcriber.domain.session import (
     ConsentCaptureSource,
     InvalidSessionTransition,
     MeetingSession,
+    SessionOrigin,
     SessionState,
 )
 from meeting_transcriber.domain.transcript import (
@@ -27,6 +28,7 @@ __all__ = [
     "InvalidSessionTransition",
     "InvalidTranscriptionJobTransition",
     "MeetingSession",
+    "SessionOrigin",
     "SessionState",
     "TranscriptDocument",
     "TranscriptSegment",

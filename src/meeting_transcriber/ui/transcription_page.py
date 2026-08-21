@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from meeting_transcriber.domain.session import MeetingSession
+from meeting_transcriber.domain.session import MeetingSession, SessionOrigin
 from meeting_transcriber.domain.transcript import (
     TranscriptionJob,
     TranscriptionJobState,
@@ -140,7 +140,8 @@ class TranscriptionPage(QWidget):
         setup_layout.addWidget(self.diarization_description)
 
         speaker_limits = QHBoxLayout()
-        speaker_limits.addWidget(_label("Remote speakers", "muted"))
+        self.speaker_limits_label = _label("Remote speakers", "muted")
+        speaker_limits.addWidget(self.speaker_limits_label)
         speaker_limits.addStretch()
         speaker_limits.addWidget(_label("Minimum", "muted"))
         self.min_remote_speakers = QSpinBox()
@@ -227,6 +228,18 @@ class TranscriptionPage(QWidget):
     def load_session(self, session: MeetingSession, job: TranscriptionJob | None = None) -> None:
         self._session_id = session.session_id
         self.meeting_title.setText(session.title)
+        imported = session.origin is SessionOrigin.IMPORTED_MEDIA
+        self.separate_remote_speakers_checkbox.setText(
+            "Separate individual voices in imported media (optional; slower)"
+            if imported
+            else "Separate individual voices in system audio (optional; slower)"
+        )
+        self.separate_remote_speakers_checkbox.setAccessibleName(
+            "Separate individual speakers in imported media"
+            if imported
+            else "Separate individual remote speakers"
+        )
+        self.speaker_limits_label.setText("Speakers" if imported else "Remote speakers")
         self.setup_card.show()
         self.progress_card.hide()
         self.start_button.setText("Start offline transcription")

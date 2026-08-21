@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 class TranscriptSource(StrEnum):
     MICROPHONE = "microphone"
     SYSTEM_AUDIO = "system_audio"
+    IMPORTED_MEDIA = "imported_media"
 
 
 class TranscriptionProfile(StrEnum):

@@ -70,6 +70,17 @@ def test_transcription_setup_scrolls_instead_of_compressing_controls(qtbot: QtBo
     assert page.start_button.height() >= page.start_button.sizeHint().height()
 
 
+def test_imported_media_uses_clear_speaker_separation_labels(qtbot: QtBot) -> None:
+    page = TranscriptionPage()
+    qtbot.addWidget(page)
+
+    page.load_session(MeetingSession.imported("Imported interview"))
+
+    assert "imported media" in page.separate_remote_speakers_checkbox.text()
+    assert page.speaker_limits_label.text() == "Speakers"
+    assert "imported media" in page.separate_remote_speakers_checkbox.accessibleName()
+
+
 def test_transcription_page_shows_progress_and_retryable_failure(qtbot: QtBot) -> None:
     page = TranscriptionPage()
     qtbot.addWidget(page)

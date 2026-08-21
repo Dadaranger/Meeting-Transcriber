@@ -63,6 +63,19 @@ def test_history_offers_offline_transcription_for_recorded_audio(qtbot: QtBot) -
     assert requested.args == [recorded.session_id]
 
 
+def test_history_marks_imported_media_and_emits_import_request(qtbot: QtBot) -> None:
+    page = HistoryPage()
+    qtbot.addWidget(page)
+    imported = MeetingSession.imported("Phone interview", now=START)
+
+    page.load_sessions([imported], frozenset())
+
+    assert "imported media" in page.session_list.item(0).text()
+    assert page.transcribe_button.isEnabled()
+    with qtbot.waitSignal(page.import_requested):
+        qtbot.mouseClick(page.import_button, Qt.MouseButton.LeftButton)  # type: ignore[no-untyped-call]
+
+
 def test_history_opens_ready_markdown_notes(qtbot: QtBot) -> None:
     page = HistoryPage()
     qtbot.addWidget(page)

@@ -11,6 +11,7 @@ from typing import cast
 from meeting_transcriber.domain.session import (
     ConsentCaptureSource,
     MeetingSession,
+    SessionOrigin,
     SessionState,
 )
 from meeting_transcriber.storage.session_paths import (
@@ -77,6 +78,7 @@ def _to_document(session: MeetingSession) -> dict[str, object]:
         "created_at": _format_timestamp(session.created_at),
         "updated_at": _format_timestamp(session.updated_at),
         "revision": session.revision,
+        "origin": session.origin.value,
         "consent": consent,
         "started_at": _format_timestamp(session.started_at),
         "stopped_at": _format_timestamp(session.stopped_at),
@@ -120,9 +122,9 @@ def _parse_consent(
 
 def _from_document(document: Mapping[str, object]) -> MeetingSession:
     schema_version = document.get("schema_version")
-    if schema_version not in {1, MeetingSession.SCHEMA_VERSION}:
+    if schema_version not in {1, 2, MeetingSession.SCHEMA_VERSION}:
         raise UnsupportedSessionSchema(
-            f"Unsupported session schema {schema_version!r}; expected 1 or "
+            f"Unsupported session schema {schema_version!r}; expected 1, 2, or "
             f"{MeetingSession.SCHEMA_VERSION}"
         )
     if not isinstance(schema_version, int):
@@ -145,6 +147,14 @@ def _from_document(document: Mapping[str, object]) -> MeetingSession:
     consent_confirmed_at, consent_text_version, consent_capture_sources = _parse_consent(
         document, schema_version
     )
+    try:
+        origin = (
+            SessionOrigin(_required_string(document, "origin"))
+            if schema_version >= 3
+            else SessionOrigin.LIVE_RECORDING
+        )
+    except ValueError as error:
+        raise SessionDataError("Unknown meeting session origin") from error
 
     try:
         return MeetingSession(
@@ -154,6 +164,7 @@ def _from_document(document: Mapping[str, object]) -> MeetingSession:
             created_at=created_at,
             updated_at=updated_at,
             revision=revision,
+            origin=origin,
             consent_confirmed_at=consent_confirmed_at,
             consent_text_version=consent_text_version,
             consent_capture_sources=consent_capture_sources,
